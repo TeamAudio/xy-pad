@@ -102,7 +102,9 @@ local function dehydrate(mappings)
             max = m.max,
             min = m.min,
             invert = m.invert,
-            bypass = m.bypass
+            bypass = m.bypass,
+            curve_points = m.curve_points,
+            current_value = m.current_value
         })
     end
 
@@ -150,7 +152,12 @@ local function hydrate(mapping, validator)
         max = mapping.max or DEFAULT_MAX,
         min = mapping.min or DEFAULT_MIN,
         invert = mapping.invert or DEFAULT_INVERT,
-        bypass = mapping.bypass or DEFAULT_BYPASS
+        bypass = mapping.bypass or DEFAULT_BYPASS,
+        curve_points = mapping.curve_points or {
+            {x = 0, y = 0},
+            {x = 1, y = 1}
+        },
+        current_value = 0.0 -- output of the evaluated mapping curve updated each frame
     }
 end
 
@@ -226,7 +233,11 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
         axis = axis,
         track_guid = track_guid,
         fx_guid = fx_guid,
-        param_number = param_number
+        param_number = param_number,
+        curve_points = {
+            {x = 0, y = 0},
+            {x = 1, y = 1}
+        }
     }
 
     if exists(m) then
@@ -280,6 +291,19 @@ local function set_params(axis, value)
     end
 end
 
+-- Takes a single mapping object instead of all mappings on axis
+local function set_param_value(mapping, value)
+    local adjusted_value = mapping.min + value * (mapping.max - mapping.min)
+
+    if mapping.invert then
+        adjusted_value = 1.0 - adjusted_value
+    end
+
+    if not mapping.bypass and mapping.track and mapping.fx_number then
+        reaper.TrackFX_SetParam(mapping.track, mapping.fx_number, mapping.param_number, adjusted_value)
+    end
+end
+
 local function is_empty()
     return #xs == 0 and #ys == 0
 end
@@ -318,6 +342,37 @@ local function mapping_from_last_touched(axis)
     }
 end
 
+-- Remember selected mapping so the curve can remain displayed when interacting
+local function remember_selection()
+    local remembered = { x = nil, y = nil }
+
+    for _, m in ipairs(xs) do
+        if m.selected then
+            remembered.x = m
+            break
+        end
+    end
+
+    for _, m in ipairs(ys) do
+        if m.selected then
+            remembered.y = m
+            break
+        end
+    end
+
+    return remembered
+end
+
+-- Restore the mapping selection to what it was before interacting
+local function restore_selection(remembered)
+    for _, m in ipairs(xs) do
+        m.selected = (remembered.x and m.fx_guid == remembered.x.fx_guid and m.param_number == remembered.x.param_number)
+    end
+    for _, m in ipairs(ys) do
+        m.selected = (remembered.y and m.fx_guid == remembered.y.fx_guid and m.param_number == remembered.y.param_number)
+    end
+end
+
 return {
     reload_mappings = reload_mappings,
     get_mappings = get_mappings,
@@ -327,5 +382,6 @@ return {
     mapping_from_last_touched = mapping_from_last_touched,
     remove_selected = remove_selected,
     set_params = set_params,
-    is_empty = is_empty
+    is_empty = is_empty,
+    set_param_value = set_param_value
 }

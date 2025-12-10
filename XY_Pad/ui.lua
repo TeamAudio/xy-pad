@@ -167,7 +167,7 @@ local function render_heading(text)
     end, Trap)
 end
 
-local function render_parameter_table_row(param_entry)
+local function render_parameter_table_row(param_number, param_entry)
     local needs_save = false
 
     local axis = type(param_entry.mappings.x) == 'table' and 'x' or type(param_entry.mappings.y) == 'table' and 'y' or nil
@@ -180,8 +180,11 @@ local function render_parameter_table_row(param_entry)
 
     -- column 0: tree leaf
     ImGui.TableSetColumnIndex(_ctx, 0)
-    ImGui.PushID(_ctx, m.param_number)
-    ImGui.TreeNodeEx(_ctx, "param", param_entry.name, ImGui.TreeNodeFlags_Leaf | ImGui.TreeNodeFlags_NoTreePushOnOpen | ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+    ImGui.PushID(_ctx, param_number)
+
+    if not ImGui.TreeNodeEx(_ctx, param_number, param_entry.name, ImGui.TreeNodeFlags_Leaf | ImGui.TreeNodeFlags_NoTreePushOnOpen | ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen) then
+        return
+    end
 
     -- column 1: Axis radios
     ImGui.TableSetColumnIndex(_ctx, 1)
@@ -239,34 +242,33 @@ local function render_parameter_table_row(param_entry)
     ImGui.PopID(_ctx)
 end
 
-local function render_fx_table_row(fx_entry)
+local function render_fx_table_row(fx_guid, fx_entry)
     ImGui.TableNextRow(_ctx)
     ImGui.TableSetColumnIndex(_ctx, 0)
 
-    local fx_open = ImGui.TreeNodeEx(_ctx, "fx", fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
-
+    local fx_open = ImGui.TreeNodeEx(_ctx, fx_guid, fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
     if fx_open then
         Trap(function()
-            for _param_number, param_entry in pairs(fx_entry.params) do
-                render_parameter_table_row(param_entry)
+            for param_number, param_entry in pairs(fx_entry.params) do
+                render_parameter_table_row(param_number, param_entry)
             end
         end)
         ImGui.TreePop(_ctx)
     end
 end
 
-local function render_track_table_row(track_entry)
+local function render_track_table_row(track_guid, track_entry)
     ImGui.TableNextRow(_ctx)
     ImGui.TableSetColumnIndex(_ctx, 0)
 
     Trap(function()
-        local track_open = ImGui.TreeNodeEx(_ctx, "track", track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+        local track_open = ImGui.TreeNodeEx(_ctx, track_guid, track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
 
         if track_open then
             Trap(function()
                 -- FX level
-                for _fx_guid, fx_entry in pairs(track_entry.fx) do
-                    render_fx_table_row(fx_entry)
+                for fx_guid, fx_entry in pairs(track_entry.fx) do
+                    render_fx_table_row(fx_guid, fx_entry)
                 end
             end)
             ImGui.TreePop(_ctx) -- track
@@ -277,16 +279,17 @@ end
 local function render_mapping_tree_table(ms_table)
     if ImGui.BeginTable(_ctx, "mappings-table", 6, ImGui.TableFlags_Borders | ImGui.TableFlags_RowBg | ImGui.TableFlags_Resizable | ImGui.TableFlags_ScrollY) then
         Trap(function()
-            ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide)
+            ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide) -- Tree column
             ImGui.TableSetupColumn(_ctx, "Axis")
             ImGui.TableSetupColumn(_ctx, "Min/Max")
             ImGui.TableSetupColumn(_ctx, "Invert")
             ImGui.TableSetupColumn(_ctx, "Bypass")
+            ImGui.TableSetupColumn(_ctx, "") -- Remove button column
             ImGui.TableHeadersRow(_ctx)
 
             -- Track level
-            for _track_guid, track_entry in pairs(ms_table) do
-                render_track_table_row(track_entry)
+            for track_guid, track_entry in pairs(ms_table) do
+                render_track_table_row(track_guid, track_entry)
             end
         end)
         ImGui.EndTable(_ctx)

@@ -296,7 +296,9 @@ local function add_mapping(axis, track_guid, fx_guid, param_number, config)
     end
 
     for k, v in pairs(config) do
-        m[k] = v
+        if k ~= 'axis' then
+            m[k] = v
+        end
     end
 
     if not mapping_validator().is_valid(m) then

@@ -168,48 +168,74 @@ local function validated(mappings)
   return validated_mappings
 end
 
--- Rebuild a hierarchical table Track->FX->Param->{x or y}
--- Looks like:
---   {
---     [track_guid] = { name = "Track Name", fx = {
---       [fx_guid] = { name = "FX Name", params = {
---         [param_number] = { name = "Param Name", mappings = {x|y = mapping} }
---       } }
---     } }
---   }
+-- Build a deterministic hierarchy Track->FX->Param with both lookups and sorted arrays
 local function rebuild_ms_table(xs, ys)
-    local ms_table = {}
+    local ms_table = { tracks = {}, by_track = {} }
 
-    local function insert_mapping(m, axis)
-        local track_entry = ms_table[m.track_guid]
+    local function sorted_values(map, cmp)
+        local arr = {}
+
+        for _, v in pairs(map) do
+            table.insert(arr, v)
+        end
+
+        table.sort(arr, cmp)
+
+        return arr
+    end
+
+    local function ensure_track(m)
+        local track_entry = ms_table.by_track[m.track_guid]
 
         if not track_entry then
             track_entry = {
+                guid = m.track_guid,
                 name = m.track_name,
-                fx = {}
+                track_number = m.track_number,
+                fx_map = {}
             }
-            ms_table[m.track_guid] = track_entry
+            ms_table.by_track[m.track_guid] = track_entry
+            table.insert(ms_table.tracks, track_entry)
         end
 
-        local fx_entry = track_entry.fx[m.fx_guid]
+        return track_entry
+    end
+
+    local function ensure_fx(track_entry, m)
+        local fx_entry = track_entry.fx_map[m.fx_guid]
 
         if not fx_entry then
             fx_entry = {
+                guid = m.fx_guid,
                 name = m.fx_name,
-                params = {}
+                fx_number = m.fx_number,
+                params_map = {}
             }
-            track_entry.fx[m.fx_guid] = fx_entry
+            track_entry.fx_map[m.fx_guid] = fx_entry
         end
 
-        local param_entry = fx_entry.params[m.param_number]
+        return fx_entry
+    end
+
+    local function ensure_param(fx_entry, m)
+        local param_entry = fx_entry.params_map[m.param_number]
 
         if not param_entry then
             param_entry = {
+                param_number = m.param_number,
                 name = m.param_name,
                 mappings = {}
             }
-            fx_entry.params[m.param_number] = param_entry
+            fx_entry.params_map[m.param_number] = param_entry
         end
+
+        return param_entry
+    end
+
+    local function insert_mapping(m, axis)
+        local track_entry = ensure_track(m)
+        local fx_entry = ensure_fx(track_entry, m)
+        local param_entry = ensure_param(fx_entry, m)
 
         param_entry.mappings[axis] = m
     end
@@ -221,6 +247,47 @@ local function rebuild_ms_table(xs, ys)
     for _, m in ipairs(ys) do
         insert_mapping(m, 'y')
     end
+
+    for _, track_entry in ipairs(ms_table.tracks) do
+        track_entry.fx = sorted_values(track_entry.fx_map, function(a, b)
+            local a_name = (a.name or ""):lower()
+            local b_name = (b.name or ""):lower()
+
+            if a_name ~= b_name then return a_name < b_name end
+
+            if a.fx_number and b.fx_number and a.fx_number ~= b.fx_number then
+                return a.fx_number < b.fx_number
+            end
+
+            return (a.guid or "") < (b.guid or "")
+        end)
+
+        for _, fx_entry in ipairs(track_entry.fx) do
+            fx_entry.params = sorted_values(fx_entry.params_map, function(a, b)
+                if a.param_number ~= b.param_number then
+                    return a.param_number < b.param_number
+                end
+
+                local a_name = (a.name or ""):lower()
+                local b_name = (b.name or ""):lower()
+
+                return a_name < b_name
+            end)
+        end
+    end
+
+    table.sort(ms_table.tracks, function(a, b)
+        if a.track_number and b.track_number and a.track_number ~= b.track_number then
+            return a.track_number < b.track_number
+        end
+
+        local a_name = (a.name or ""):lower()
+        local b_name = (b.name or ""):lower()
+
+        if a_name ~= b_name then return a_name < b_name end
+
+        return (a.guid or "") < (b.guid or "")
+    end)
 
     return ms_table
 end

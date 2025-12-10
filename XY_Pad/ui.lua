@@ -167,7 +167,7 @@ local function render_heading(text)
     end, Trap)
 end
 
-local function render_parameter_table_row(param_number, param_entry)
+local function render_parameter_table_row(param_entry)
     local needs_save = false
 
     local axis = type(param_entry.mappings.x) == 'table' and 'x' or type(param_entry.mappings.y) == 'table' and 'y' or nil
@@ -180,9 +180,9 @@ local function render_parameter_table_row(param_number, param_entry)
 
     -- column 0: tree leaf
     ImGui.TableSetColumnIndex(_ctx, 0)
-    ImGui.PushID(_ctx, param_number)
+    ImGui.PushID(_ctx, param_entry.param_number)
 
-    if not ImGui.TreeNodeEx(_ctx, param_number, param_entry.name, ImGui.TreeNodeFlags_Leaf | ImGui.TreeNodeFlags_NoTreePushOnOpen | ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen) then
+    if not ImGui.TreeNodeEx(_ctx, param_entry.param_number, param_entry.name, ImGui.TreeNodeFlags_Leaf | ImGui.TreeNodeFlags_NoTreePushOnOpen | ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen) then
         return
     end
 
@@ -191,11 +191,13 @@ local function render_parameter_table_row(param_number, param_entry)
     if ImGui.RadioButton(_ctx, "X", axis == 'x') then
         mappings.remove_mapping(m)
         mappings.add_mapping('x', m.track_guid, m.fx_guid, m.param_number, m)
+        needs_save = true
     end
     ImGui.SameLine(_ctx)
     if ImGui.RadioButton(_ctx, "Y", axis == 'y') then
         mappings.remove_mapping(m)
         mappings.add_mapping('y', m.track_guid, m.fx_guid, m.param_number, m)
+        needs_save = true
     end
 
     local call_result
@@ -229,6 +231,7 @@ local function render_parameter_table_row(param_number, param_entry)
     ImGui.TableSetColumnIndex(_ctx, 4)
     call_result, m.bypass = ImGui.Checkbox(_ctx, '##Bypass', m.bypass)
     if call_result then needs_save = true end
+
     if needs_save then
         mappings.save_mappings()
     end
@@ -242,33 +245,33 @@ local function render_parameter_table_row(param_number, param_entry)
     ImGui.PopID(_ctx)
 end
 
-local function render_fx_table_row(fx_guid, fx_entry)
+local function render_fx_table_row(fx_entry)
     ImGui.TableNextRow(_ctx)
     ImGui.TableSetColumnIndex(_ctx, 0)
 
-    local fx_open = ImGui.TreeNodeEx(_ctx, fx_guid, fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+    local fx_open = ImGui.TreeNodeEx(_ctx, fx_entry.guid, fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
     if fx_open then
         Trap(function()
-            for param_number, param_entry in pairs(fx_entry.params) do
-                render_parameter_table_row(param_number, param_entry)
+            for _, param_entry in ipairs(fx_entry.params or {}) do
+                render_parameter_table_row(param_entry)
             end
         end)
         ImGui.TreePop(_ctx)
     end
 end
 
-local function render_track_table_row(track_guid, track_entry)
+local function render_track_table_row(track_entry)
     ImGui.TableNextRow(_ctx)
     ImGui.TableSetColumnIndex(_ctx, 0)
 
     Trap(function()
-        local track_open = ImGui.TreeNodeEx(_ctx, track_guid, track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+        local track_open = ImGui.TreeNodeEx(_ctx, track_entry.guid, track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
 
         if track_open then
             Trap(function()
                 -- FX level
-                for fx_guid, fx_entry in pairs(track_entry.fx) do
-                    render_fx_table_row(fx_guid, fx_entry)
+                for _, fx_entry in ipairs(track_entry.fx or {}) do
+                    render_fx_table_row(fx_entry)
                 end
             end)
             ImGui.TreePop(_ctx) -- track
@@ -288,8 +291,8 @@ local function render_mapping_tree_table(ms_table)
             ImGui.TableHeadersRow(_ctx)
 
             -- Track level
-            for track_guid, track_entry in pairs(ms_table) do
-                render_track_table_row(track_guid, track_entry)
+            for _, track_entry in ipairs(ms_table.tracks or {}) do
+                render_track_table_row(track_entry)
             end
         end)
         ImGui.EndTable(_ctx)

@@ -82,12 +82,12 @@ local function on_add_mapping(f)
     _on_add_mapping = f
 end
 
-local function empty_mappings() return {}, {} end
+local function empty_mappings() return {}, {}, {} end
 
-local xs, ys = empty_mappings()
+local xs, ys, ms_table = empty_mappings()
 
 local function get_mappings()
-    return { x = xs, y = ys }
+    return { x = xs, y = ys, ms_table = ms_table }
 end
 
 -- Converts mappings to a dehydrated format for persistence
@@ -168,8 +168,65 @@ local function validated(mappings)
   return validated_mappings
 end
 
+-- Rebuild a hierarchical table Track->FX->Param->{x or y}
+-- Looks like:
+--   {
+--     [track_guid] = { name = "Track Name", fx = {
+--       [fx_guid] = { name = "FX Name", params = {
+--         [param_number] = { name = "Param Name", mappings = {x|y = mapping} }
+--       } }
+--     } }
+--   }
+local function rebuild_ms_table(xs, ys)
+    local ms_table = {}
+
+    local function insert_mapping(m, axis)
+        local track_entry = ms_table[m.track_guid]
+
+        if not track_entry then
+            track_entry = {
+                name = m.track_name,
+                fx = {}
+            }
+            ms_table[m.track_guid] = track_entry
+        end
+
+        local fx_entry = track_entry.fx[m.fx_guid]
+
+        if not fx_entry then
+            fx_entry = {
+                name = m.fx_name,
+                params = {}
+            }
+            track_entry.fx[m.fx_guid] = fx_entry
+        end
+
+        local param_entry = fx_entry.params[m.param_number]
+
+        if not param_entry then
+            param_entry = {
+                name = m.param_name,
+                mappings = {}
+            }
+            fx_entry.params[m.param_number] = param_entry
+        end
+
+        param_entry.mappings[axis] = m
+    end
+
+    for _, m in ipairs(xs) do
+        insert_mapping(m, 'x')
+    end
+
+    for _, m in ipairs(ys) do
+        insert_mapping(m, 'y')
+    end
+
+    return ms_table
+end
+
 local function reload_mappings()
-  xs, ys = empty_mappings()
+  xs, ys, ms_table = empty_mappings()
 
   local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
 
@@ -180,6 +237,8 @@ local function reload_mappings()
           if mappings.xs then xs = validated(mappings.xs) end
           if mappings.ys then ys = validated(mappings.ys) end
       end
+
+      ms_table = rebuild_ms_table(xs, ys)
   end
 end
 
@@ -216,11 +275,13 @@ local function save_mappings()
     else
         reaper.SetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY, m_json)
         reaper.MarkProjectDirty(CURRENT_PROJECT)
+        ms_table = rebuild_ms_table(xs, ys)
     end
 end
 
-local function add_mapping(axis, track_guid, fx_guid, param_number)
+local function add_mapping(axis, track_guid, fx_guid, param_number, config)
     local mappings = axis == 'x' and xs or ys
+    config = config or {}
 
     local m = {
         axis = axis,
@@ -232,6 +293,10 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
     if exists(m) then
         log('Mapping already exists')
         return
+    end
+
+    for k, v in pairs(config) do
+        m[k] = v
     end
 
     if not mapping_validator().is_valid(m) then
@@ -246,21 +311,27 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
     _on_add_mapping(m)
 end
 
-local function remove_selected_in(ms)
+local function remove_mapping(mapping)
     local filtered = {}
 
-    for _, m in ipairs(ms) do
-        if not m.selected then
+    for _, m in ipairs(xs) do
+        if mapping ~= m then
             table.insert(filtered, m)
         end
     end
 
-    return filtered
-end
+    xs = filtered
 
-local function remove_selected()
-    xs = remove_selected_in(xs)
-    ys = remove_selected_in(ys)
+    filtered = {}
+
+    for _, m in ipairs(ys) do
+        if mapping ~= m then
+            table.insert(filtered, m)
+        end
+    end
+
+    ys = filtered
+
     save_mappings()
 end
 
@@ -325,7 +396,7 @@ return {
     add_mapping = add_mapping,
     on_add_mapping = on_add_mapping,
     mapping_from_last_touched = mapping_from_last_touched,
-    remove_selected = remove_selected,
+    remove_mapping = remove_mapping,
     set_params = set_params,
     is_empty = is_empty
 }

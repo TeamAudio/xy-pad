@@ -10,6 +10,7 @@ local DEFAULT_MAX = 1.0
 local DEFAULT_MIN = 0.0
 local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
+local PROJECT_REFRESH_MIN_INTERVAL = 0.25 -- seconds
 
 -- Builds a map of project tracks and their FX chains
 -- Returns a table with the following methods:
@@ -85,6 +86,13 @@ end
 local function empty_mappings() return {}, {}, {} end
 
 local xs, ys, ms_table = empty_mappings()
+local last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+local last_project_refresh_time = reaper.time_precise()
+
+local function update_project_update_state()
+    last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+    last_project_refresh_time = reaper.time_precise()
+end
 
 local function get_mappings()
     return { x = xs, y = ys, ms_table = ms_table }
@@ -293,20 +301,39 @@ local function rebuild_ms_table(xs, ys)
 end
 
 local function reload_mappings()
-  xs, ys, ms_table = empty_mappings()
+    update_project_update_state()
 
-  local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
+    xs, ys, ms_table = empty_mappings()
 
-  if fetched_extstate == 1 then
-      local mappings = json.decode(state)
+    local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
 
-      if mappings and type(mappings) == 'table' then
-          if mappings.xs then xs = validated(mappings.xs) end
-          if mappings.ys then ys = validated(mappings.ys) end
-      end
+    if fetched_extstate == 1 then
+        local mappings = json.decode(state)
 
-      ms_table = rebuild_ms_table(xs, ys)
-  end
+        if mappings and type(mappings) == 'table' then
+            if mappings.xs then xs = validated(mappings.xs) end
+            if mappings.ys then ys = validated(mappings.ys) end
+        end
+
+        ms_table = rebuild_ms_table(xs, ys)
+    end
+end
+
+local function refresh_if_project_changed()
+    local current = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+
+    if current ~= last_project_state_change then
+        local now = reaper.time_precise()
+
+        if now - last_project_refresh_time >= PROJECT_REFRESH_MIN_INTERVAL then
+            last_project_state_change = current
+            last_project_refresh_time = now
+            reload_mappings()
+            return true
+        end
+    end
+
+    return false
 end
 
 -- Checks if a mapping already exists in the mappings table
@@ -343,6 +370,7 @@ local function save_mappings()
         reaper.SetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY, m_json)
         reaper.MarkProjectDirty(CURRENT_PROJECT)
         ms_table = rebuild_ms_table(xs, ys)
+        update_project_update_state()
     end
 end
 
@@ -460,6 +488,7 @@ end
 
 return {
     reload_mappings = reload_mappings,
+    refresh_if_project_changed = refresh_if_project_changed,
     get_mappings = get_mappings,
     save_mappings = save_mappings,
     add_mapping = add_mapping,

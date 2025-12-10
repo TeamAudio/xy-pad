@@ -8,7 +8,6 @@ local config = require 'config'
 local Fonts = require 'fonts'
 local help = require 'help'
 local training = require 'training'
-local theme = require 'theme'
 local Trap = require 'trap'
 
 local IMGUI_CONTEXT_NAME = 'XY Pad'
@@ -310,8 +309,11 @@ local function render_mapping()
 
     ImGui.SetNextWindowSize(_ctx, DEFAULT_MAPPINGS_WINDOW_WIDTH, DEFAULT_MAPPINGS_WINDOW_HEIGHT, ImGui.Cond_FirstUseEver)
     local visible, open = ImGui.Begin(_ctx, 'Mappings', true, parameter_window_flags)
+
     if visible then
         Trap(function()
+            mappings.refresh_if_project_changed()
+
             if not open then
                 mappings_open = false
             end

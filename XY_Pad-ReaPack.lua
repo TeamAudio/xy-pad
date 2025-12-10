@@ -8,7 +8,7 @@
 --  2. Run XY Pad - you'll be greeted with some instructions on how to add mappings and configure your experience.
 --  3. Add some mappings, and drag the cursor across the pad - eyes wide, watching those param values sing.
 --  4. Sit back, close your eyes and ponder the new sonic horizons you've opened up.
---   
+--
 --  ### Join our community!
 --  - [Discord](https://discord.gg/fCnkP9PhTQ)
 --@description XY Pad, by Tech Audio

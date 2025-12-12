@@ -279,7 +279,12 @@ local function render_track_table_row(track_entry)
 end
 
 local function render_mapping_tree_table(ms_table)
-    if ImGui.BeginTable(_ctx, "mappings-table", 6, ImGui.TableFlags_Borders | ImGui.TableFlags_RowBg | ImGui.TableFlags_Resizable | ImGui.TableFlags_ScrollY) then
+    local table_flags = ImGui.TableFlags_Borders
+        | ImGui.TableFlags_NoSavedSettings
+        | ImGui.TableFlags_RowBg
+        | ImGui.TableFlags_Resizable
+        | ImGui.TableFlags_ScrollY
+    if ImGui.BeginTable(_ctx, "mappings-table", 6, table_flags) then
         Trap(function()
             -- Tree column: stretch wide for names
             ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, 3.0)
@@ -310,6 +315,7 @@ local function render_mapping()
 
     local parameter_window_flags
         = ImGui.WindowFlags_NoDocking
+        | ImGui.WindowFlags_NoSavedSettings
         | ImGui.WindowFlags_NoCollapse
 
     ImGui.SetNextWindowSize(_ctx, DEFAULT_MAPPINGS_WINDOW_WIDTH, DEFAULT_MAPPINGS_WINDOW_HEIGHT, ImGui.Cond_FirstUseEver)

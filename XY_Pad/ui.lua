@@ -27,7 +27,6 @@ local mouse_down = false
 -- Mapping curves
 local show_curve = true
 local dragging_point_index = nil
-local mapped_input_x = 0 -- updated only when pad is dragged
 
 -- GUI Functionality
 -- Get XY Pad window dimensions
@@ -51,8 +50,8 @@ local function mouse_in_bounds(in_check_x, in_check_y, win_x, win_y, win_w, win_
     return in_check_x > win_x and in_check_x < win_x + win_w and in_check_y > win_y and in_check_y < win_y + win_h
 end
 
--- Evaluate mapping curve for X axis mappings
-local function evaluate_curve_x(x, curve_points)
+-- Evaluate mapping curve for a normalized input in [0,1]
+local function evaluate_curve(x, curve_points)
     if not curve_points or #curve_points < 2 then
         return x
     end
@@ -69,15 +68,6 @@ local function evaluate_curve_x(x, curve_points)
     if x > curve_points[#curve_points].x then return curve_points[#curve_points].y end
 
     return x -- fallback value
-end
-
--- Evaluate mapping curve for Y axis mappings. Flips (x,y) to (y,x)
-local function evaluate_curve_y(input_y, curve)
-    local flipped = {}
-    for _, pt in ipairs(curve) do
-        table.insert(flipped, { x = pt.y, y = pt.x })
-    end
-    return evaluate_curve_x(input_y, flipped)
 end
 
 -- Get selected mapping
@@ -291,7 +281,7 @@ local function render_xy_pad(frame)
 
                             local val_x
                             if m.curve_points and #m.curve_points >= 2 then
-                                val_x = evaluate_curve_x(mse_norm_x, m.curve_points)
+                                val_x = evaluate_curve(mse_norm_x, m.curve_points)
                             end
                             if val_x == nil then
                                 val_x = mse_norm_x
@@ -309,7 +299,7 @@ local function render_xy_pad(frame)
 
                             local val_y
                             if m.curve_points and #m.curve_points >= 2 then
-                                val_y = evaluate_curve_y(mse_norm_y, m.curve_points)
+                                val_y = evaluate_curve(mse_norm_y, m.curve_points)
                             end
                             if val_y == nil then
                                 val_y = mse_norm_y
@@ -335,9 +325,9 @@ local function render_xy_pad(frame)
                             ImGui.DrawList_AddText(draw_list, win_x + 5, marker_y, 0xFF3366FF, label)
                             
                         elseif selected_y and selected_y.current_value then
-                            -- Y: show horizontal movement (X value from curve)
-                            local marker_x = win_x + selected_y.current_value * win_w
-                            local marker_y = win_y + (1 - mse_norm_y) * win_h
+                            -- Y: input is mse_norm_y (horizontal axis on the curve), output is current_value (vertical axis)
+                            local marker_x = win_x + mse_norm_y * win_w
+                            local marker_y = win_y + (1 - selected_y.current_value) * win_h
                             ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, 4, options.cursor_color)
 
                             local label = string.format("%.2f", selected_y.current_value)

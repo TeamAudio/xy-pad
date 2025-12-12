@@ -10,6 +10,8 @@ local DEFAULT_MAX = 1.0
 local DEFAULT_MIN = 0.0
 local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
+local DEFAULT_USE_CURVE = true
+local DEFAULT_CURVE_VISIBILITY = 'full'
 
 -- Builds a map of project tracks and their FX chains
 -- Returns a table with the following methods:
@@ -103,6 +105,8 @@ local function dehydrate(mappings)
             min = m.min,
             invert = m.invert,
             bypass = m.bypass,
+            use_curve = m.use_curve,
+            curve_visibility = m.curve_visibility,
             curve_points = m.curve_points,
             current_value = m.current_value
         })
@@ -153,6 +157,8 @@ local function hydrate(mapping, validator)
         min = mapping.min or DEFAULT_MIN,
         invert = mapping.invert or DEFAULT_INVERT,
         bypass = mapping.bypass or DEFAULT_BYPASS,
+        use_curve = mapping.use_curve ~= nil and mapping.use_curve or DEFAULT_USE_CURVE,
+        curve_visibility = mapping.curve_visibility or DEFAULT_CURVE_VISIBILITY,
         curve_points = mapping.curve_points or {
             {x = 0, y = 0},
             {x = 1, y = 1}
@@ -234,6 +240,8 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
         track_guid = track_guid,
         fx_guid = fx_guid,
         param_number = param_number,
+        use_curve = DEFAULT_USE_CURVE,
+        curve_visibility = DEFAULT_CURVE_VISIBILITY,
         curve_points = {
             {x = 0, y = 0},
             {x = 1, y = 1}

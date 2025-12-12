@@ -281,12 +281,17 @@ end
 local function render_mapping_tree_table(ms_table)
     if ImGui.BeginTable(_ctx, "mappings-table", 6, ImGui.TableFlags_Borders | ImGui.TableFlags_RowBg | ImGui.TableFlags_Resizable | ImGui.TableFlags_ScrollY) then
         Trap(function()
-            ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide) -- Tree column
-            ImGui.TableSetupColumn(_ctx, "Axis")
-            ImGui.TableSetupColumn(_ctx, "Min/Max")
-            ImGui.TableSetupColumn(_ctx, "Invert")
-            ImGui.TableSetupColumn(_ctx, "Bypass")
-            ImGui.TableSetupColumn(_ctx, "") -- Remove button column
+            -- Tree column: stretch wide for names
+            ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, 3.0)
+            -- Axis radios: compact fixed width
+            ImGui.TableSetupColumn(_ctx, "Axis", ImGui.TableColumnFlags_WidthFixed, 110)
+            -- Min/Max: stretch with moderate weight
+            ImGui.TableSetupColumn(_ctx, "Min/Max", ImGui.TableColumnFlags_WidthStretch, 2.0)
+            -- Booleans: compact fixed widths
+            ImGui.TableSetupColumn(_ctx, "Invert", ImGui.TableColumnFlags_WidthFixed, 70)
+            ImGui.TableSetupColumn(_ctx, "Bypass", ImGui.TableColumnFlags_WidthFixed, 70)
+            -- Remove button: compact fixed width
+            ImGui.TableSetupColumn(_ctx, "Remove", ImGui.TableColumnFlags_WidthFixed, 90)
             ImGui.TableHeadersRow(_ctx)
 
             -- Track level

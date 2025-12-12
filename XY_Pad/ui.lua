@@ -24,30 +24,194 @@ local default_help_open = false
 
 local mouse_down = false
 
+-- Curve focus (editing) state, independent from selection
+local focused_curve = nil -- { axis = 'x'|'y', track_guid = ..., fx_guid = ..., param_number = ... }
+
 -- Mapping curves
 local show_curve = true
 local dragging_point_index = nil
 
--- GUI Functionality
--- Get XY Pad window dimensions
-local function get_window_dimensions()
-    local win_x, win_y = ImGui.GetWindowPos(_ctx)
-    local win_w, win_h = ImGui.GetWindowSize(_ctx)
-
-    return win_x, win_y, win_w, win_h
+-- Curve helpers
+local function set_focused_curve(axis, m)
+    focused_curve = m and {
+        axis = axis,
+        track_guid = m.track_guid,
+        fx_guid = m.fx_guid,
+        param_number = m.param_number
+    } or nil
 end
 
--- Get mouse position and return raw and normalized values
-local function get_mouse_position(win_x, win_y, win_w, win_h)
-    local mse_x, mse_y = ImGui.GetMousePos(_ctx)
-    local mse_norm_x, mse_norm_y = (mse_x - win_x)/win_w, 1-(mse_y - win_y)/win_h
-    local mse_round_x, mse_round_y = tonumber(string.format('%.2f', mse_norm_x)), tonumber(string.format('%.2f', mse_norm_y))
-    return mse_x, mse_y, mse_norm_x, mse_norm_y, mse_round_x, mse_round_y
+local function resolve_focused_mapping()
+    if not focused_curve then return nil end
+    local all = mappings.get_mappings()
+    local list = focused_curve.axis == 'y' and all.y or all.x
+    for _, m in ipairs(list) do
+        if m.track_guid == focused_curve.track_guid
+            and m.fx_guid == focused_curve.fx_guid
+            and m.param_number == focused_curve.param_number then
+            return m
+        end
+    end
+    return nil
 end
 
--- Check if mouse is within window bounds
-local function mouse_in_bounds(in_check_x, in_check_y, win_x, win_y, win_w, win_h)
-    return in_check_x > win_x and in_check_x < win_x + win_w and in_check_y > win_y and in_check_y < win_y + win_h
+local function collect_curves_to_draw()
+    local curves = {}
+    local ms = mappings.get_mappings()
+    for _, m in ipairs(ms.x) do
+        if m.use_curve ~= false and m.curve_points and #m.curve_points >= 2 and m.curve_visibility ~= 'none' then
+            table.insert(curves, m)
+        end
+    end
+    for _, m in ipairs(ms.y) do
+        if m.use_curve ~= false and m.curve_points and #m.curve_points >= 2 and m.curve_visibility ~= 'none' then
+            table.insert(curves, m)
+        end
+    end
+    return curves
+end
+
+local function draw_curve_segments(draw_list, m, win_x, win_y, win_w, win_h, color, thickness)
+    if m.curve_visibility == 'points' then return end
+    for i = 1, #m.curve_points - 1 do
+        local p1 = m.curve_points[i]
+        local p2 = m.curve_points[i + 1]
+        local x1 = win_x + p1.x * win_w
+        local y1 = win_y + (1 - p1.y) * win_h
+        local x2 = win_x + p2.x * win_w
+        local y2 = win_y + (1 - p2.y) * win_h
+        ImGui.DrawList_AddLine(draw_list, x1, y1, x2, y2, color, thickness)
+    end
+end
+
+local function draw_curve_points(draw_list, editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+    if editing_visibility == 'segments' or editing_visibility == 'none' then return end
+    for i, pt in ipairs(editing_curve or {}) do
+        local is_endpoint = (i == 1 or i == #editing_curve)
+        local px = win_x + pt.x * win_w
+        local py = win_y + (1 - pt.y) * win_h
+        local radius = 6
+        ImGui.DrawList_AddCircleFilled(draw_list, px, py, radius, 0xFFFFFFFF)
+    end
+end
+
+local function handle_point_hover_and_delete(editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+    local needs_curve_save = false
+    if editing_visibility == 'segments' or editing_visibility == 'none' then return needs_curve_save end
+
+    for i, pt in ipairs(editing_curve or {}) do
+        local is_endpoint = (i == 1 or i == #editing_curve)
+        local px = win_x + pt.x * win_w
+        local py = win_y + (1 - pt.y) * win_h
+        local radius = 6
+
+        if ImGui.IsMouseHoveringRect(_ctx, px - radius, py - radius, px + radius, py + radius) then
+            ImGui.SetMouseCursor(_ctx, ImGui.MouseCursor_Hand)
+
+            if ImGui.IsMouseClicked(_ctx, 1) and ImGui.GetKeyMods(_ctx) ~= ImGui.Mod_Alt then
+                dragging_point_index = i
+                needs_curve_save = true
+            end
+
+            if not is_endpoint
+            and ImGui.IsMouseClicked(_ctx, 1)
+            and ImGui.GetKeyMods(_ctx) == ImGui.Mod_Alt then
+                table.remove(editing_curve, i)
+                dragging_point_index = nil
+                needs_curve_save = true
+                break
+            end
+        end
+    end
+
+    return needs_curve_save
+end
+
+local function handle_point_drag(editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+    if not dragging_point_index or editing_visibility == 'none' then return false end
+
+    local pt = editing_curve[dragging_point_index]
+    local mx, my = ImGui.GetMousePos(_ctx)
+    local new_x = (mx - win_x) / win_w
+    local new_y = 1 - ((my - win_y) / win_h)
+
+    new_x = math.max(0, math.min(1, new_x))
+    new_y = math.max(0, math.min(1, new_y))
+
+    local is_endpoint = (dragging_point_index == 1 or dragging_point_index == #editing_curve)
+    if is_endpoint then
+        pt.y = new_y
+    else
+        pt.x = new_x
+        pt.y = new_y
+        table.sort(editing_curve, function(a, b) return a.x < b.x end)
+        for i, p in ipairs(editing_curve) do
+            if p == pt then dragging_point_index = i break end
+        end
+    end
+    return true
+end
+
+local function render_curves(draw_list, curves_to_draw, win_x, win_y, win_w, win_h)
+    if not show_curve then return end
+    for _, m in ipairs(curves_to_draw) do
+        draw_curve_segments(draw_list, m, win_x, win_y, win_w, win_h, 0xFF3366FF, 2)
+    end
+end
+
+local function process_curve_points(editing_mapping, editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+    if not editing_mapping then
+        dragging_point_index = nil
+        return false
+    end
+
+    draw_curve_points(ImGui.GetWindowDrawList(_ctx), editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+
+    local needs_curve_save = handle_point_hover_and_delete(editing_curve, editing_visibility, win_x, win_y, win_w, win_h)
+
+    if dragging_point_index and ImGui.IsMouseDown(_ctx, 1) then
+        needs_curve_save = handle_point_drag(editing_curve, editing_visibility, win_x, win_y, win_w, win_h) or needs_curve_save
+    elseif not ImGui.IsMouseDown(_ctx, 1) then
+        dragging_point_index = nil
+    end
+
+    return needs_curve_save
+end
+
+local function maybe_add_curve_point(editing_mapping, editing_visibility, editing_curve, mse_norm_x, mse_norm_y)
+    if not editing_mapping or editing_visibility == 'none' or dragging_point_index then return false end
+    if ImGui.IsMouseClicked(_ctx, 1) and ImGui.GetKeyMods(_ctx) == 0 then
+        table.insert(editing_curve, { x = mse_norm_x, y = mse_norm_y })
+        table.sort(editing_curve, function(a, b) return a.x < b.x end)
+        return true
+    end
+    return false
+end
+
+local function draw_selected_marker(selected, axis, input_norm, win_x, win_y, win_w, win_h, options)
+    if not (selected and selected.current_value) then return end
+
+    local marker_x, marker_y
+    if axis == 'x' then
+        marker_x = win_x + input_norm * win_w
+        marker_y = win_y + (1 - selected.current_value) * win_h
+    else
+        marker_x = win_x + input_norm * win_w
+        marker_y = win_y + (1 - selected.current_value) * win_h
+    end
+
+    ImGui.DrawList_AddCircleFilled(ImGui.GetWindowDrawList(_ctx), marker_x, marker_y, 4, options.cursor_color)
+
+    local label = string.format('%.2f', selected.current_value)
+
+    if axis == 'x' then
+        ImGui.DrawList_AddText(ImGui.GetWindowDrawList(_ctx), win_x + 5, marker_y, 0xFF3366FF, label)
+    else
+        local label_w, label_h = ImGui.CalcTextSize(_ctx, label)
+        local label_x = marker_x - (label_w * 0.5)
+        local label_y = math.max(win_y + 2, win_y - label_h - 4)
+        ImGui.DrawList_AddText(ImGui.GetWindowDrawList(_ctx), label_x, label_y, 0xFF3366FF, label)
+    end
 end
 
 -- Evaluate mapping curve for a normalized input in [0,1]
@@ -70,15 +234,45 @@ local function evaluate_curve(x, curve_points)
     return x -- fallback value
 end
 
--- Get selected mapping
-local function get_selected_mapping_for_axis(axis)
-    local mappings_by_axis = mappings.get_mappings()[axis]
-    for _, m in ipairs(mappings_by_axis) do
-        if m.selected then
-            return m
+local function evaluate_and_set(axis_mappings, input_value)
+    for _, m in ipairs(axis_mappings) do
+        if m.bypass then goto continue_axis end
+
+        local val
+        if m.use_curve ~= false and m.curve_points and #m.curve_points >= 2 then
+            val = evaluate_curve(input_value, m.curve_points)
         end
+        if val == nil then
+            val = input_value
+        end
+
+        mappings.set_param_value(m, val)
+        m.current_value = val
+
+        ::continue_axis::
     end
-    return nil
+end
+
+-- GUI Functionality
+-- Get XY Pad window dimensions
+local function get_window_dimensions()
+    local win_x, win_y = ImGui.GetWindowPos(_ctx)
+    local win_w, win_h = ImGui.GetWindowSize(_ctx)
+
+    return win_x, win_y, win_w, win_h
+end
+
+-- Get mouse position and return raw and normalized values
+local function get_mouse_position(win_x, win_y, win_w, win_h)
+    local mse_x, mse_y = ImGui.GetMousePos(_ctx)
+    local mse_norm_x, mse_norm_y = (mse_x - win_x)/win_w, 1-(mse_y - win_y)/win_h
+    local mse_round_x, mse_round_y = tonumber(string.format('%.2f', mse_norm_x)), tonumber(string.format('%.2f', mse_norm_y))
+    return mse_x, mse_y, mse_norm_x, mse_norm_y, mse_round_x, mse_round_y
+end
+
+-- Check if mouse is within window bounds
+local function mouse_in_bounds(in_check_x, in_check_y, win_x, win_y, win_w, win_h)
+    return in_check_x > win_x and in_check_x < win_x + win_w and in_check_y > win_y and in_check_y < win_y + win_h
 end
 
 -- Draw XY lines
@@ -168,176 +362,44 @@ local function render_xy_pad(frame)
 
                 local mse_screen_x, mse_screen_y, mse_norm_x, mse_norm_y, mse_round_x, mse_round_y = get_mouse_position(win_x, win_y, win_w, win_h)
 
-                -- Determine which mapping's curve to display/edit
-                local selected_x = get_selected_mapping_for_axis('x')
-                local selected_y = get_selected_mapping_for_axis('y')
-
                 local needs_curve_save = false
-
-                local editing_curve = nil
-                if selected_x and selected_x.curve_points then
-                    editing_curve = selected_x.curve_points
-                elseif selected_y and selected_y.curve_points then
-                    editing_curve = selected_y.curve_points
-                else
-                    editing_curve = {}
-                end
+                local editing_mapping = resolve_focused_mapping()
+                local editing_curve = (editing_mapping and editing_mapping.curve_points) or {}
+                local editing_visibility = (editing_mapping and editing_mapping.curve_visibility) or 'full'
+                local curves_to_draw = collect_curves_to_draw()
 
                 draw_xy(draw_list, win_x, win_y, win_w, win_h, options.grid_line_x_color, options.grid_line_y_color, options.x_lines, options.y_lines, options.grid_line_width)
-                
-                if show_curve and #editing_curve >= 2 then
-                    for i = 1, #editing_curve - 1 do
-                        local p1 = editing_curve[i]
-                        local p2 = editing_curve[i + 1]
 
-                        local x1 = win_x + p1.x * win_w
-                        local y1 = win_y + (1 - p1.y) * win_h
-                        local x2 = win_x + p2.x * win_w
-                        local y2 = win_y + (1 - p2.y) * win_h
-
-                        ImGui.DrawList_AddLine(draw_list, x1, y1, x2, y2, 0xFF3366FF, 2)
-                    end
-                end
-                
-                for i, pt in ipairs(editing_curve or {}) do
-                    local is_endpoint = (i == 1 or i == #editing_curve)
-                    local px = win_x + pt.x * win_w
-                    local py = win_y + (1 - pt.y) * win_h
-                    local radius = 6
-
-                    -- Draw point
-                    ImGui.DrawList_AddCircleFilled(draw_list, px, py, radius, 0xFFFFFFFF)
-
-                    if ImGui.IsMouseHoveringRect(_ctx, px - radius, py - radius, px + radius, py + radius) then
-                        ImGui.SetMouseCursor(_ctx, ImGui.MouseCursor_Hand)
-
-                        -- Begin right-drag
-                        if ImGui.IsMouseClicked(_ctx, 1) and ImGui.GetKeyMods(_ctx) ~= ImGui.Mod_Alt then
-                            dragging_point_index = i
-                            needs_curve_save = true
-                        end
-
-                        -- Delete with Alt + Right Click
-                        if not is_endpoint
-                        and ImGui.IsMouseClicked(_ctx, 1)
-                        and ImGui.GetKeyMods(_ctx) == ImGui.Mod_Alt then
-                            table.remove(editing_curve, i)
-                            dragging_point_index = nil
-                            needs_curve_save = true
-                            break
-                        end
-                    end
-                end
-
-                if dragging_point_index and ImGui.IsMouseDown(_ctx, 1) then
-                    local pt = editing_curve[dragging_point_index]
-                    local mx, my = ImGui.GetMousePos(_ctx)
-                    local new_x = (mx - win_x) / win_w
-                    local new_y = 1 - ((my - win_y) / win_h)
-
-                    new_x = math.max(0, math.min(1, new_x))
-                    new_y = math.max(0, math.min(1, new_y))
-
-                    local is_endpoint = (dragging_point_index == 1 or dragging_point_index == #editing_curve)
-                    if is_endpoint then
-                        pt.y = new_y
-                    else
-                        pt.x = new_x
-                        pt.y = new_y
-                        table.sort(editing_curve, function(a, b) return a.x < b.x end)
-                        -- maintain correct dragging index
-                        for i, p in ipairs(editing_curve) do
-                            if p == pt then dragging_point_index = i break end
-                        end
-                    end
-                    needs_curve_save = true
-
-                elseif not ImGui.IsMouseDown(_ctx, 1) then
-                    dragging_point_index = nil
-                end
+                render_curves(draw_list, curves_to_draw, win_x, win_y, win_w, win_h)
+                needs_curve_save = process_curve_points(editing_mapping, editing_curve, editing_visibility, win_x, win_y, win_w, win_h) or needs_curve_save
 
                 if mouse_in_bounds(mse_screen_x, mse_screen_y, win_x, win_y, win_w, win_h) then
                     ImGui.SetMouseCursor(_ctx, 7)
 
-                    if ImGui.IsMouseClicked(_ctx, 1) and not dragging_point_index and ImGui.GetKeyMods(_ctx) == 0 then
-                        table.insert(editing_curve, { x = mse_norm_x, y = mse_norm_y })
-                        table.sort(editing_curve, function(a, b) return a.x < b.x end)
+                    if maybe_add_curve_point(editing_mapping, editing_visibility, editing_curve, mse_norm_x, mse_norm_y) then
                         needs_curve_save = true
                     end
                     
                     if ImGui.IsMouseDown(_ctx, 0) and ImGui.IsWindowFocused(_ctx) then
                         if not mouse_down then
                             mouse_down = true
-                            local remembered = mappings.remember_selection()
-                            mappings.reload_mappings()
-                            mappings.restore_selection(remembered)
                         end
                         draw_cursor(draw_list, mse_screen_x, mse_screen_y, options.cursor_color, options.cursor_radius, options.cursor_stroke)
                         label(draw_list, win_x + 5, (win_y - 5) + (win_h - font_height - 5), 'X: ' .. mse_round_x .. ', Y: ' .. mse_round_y, options.pad_label_color)
                         
-                        -- Send values for all X mappings
-                        for _, m in ipairs(mappings.get_mappings().x) do
-                            if m.bypass then goto continue_x end
+                        local all = mappings.get_mappings()
+                        evaluate_and_set(all.x, mse_norm_x)
+                        evaluate_and_set(all.y, mse_norm_y)
 
-                            local val_x
-                            if m.curve_points and #m.curve_points >= 2 then
-                                val_x = evaluate_curve(mse_norm_x, m.curve_points)
+                        -- Choose the focused mapping for visual marker
+                        local focused = resolve_focused_mapping()
+                        if focused then
+                            local axis = focused_curve and focused_curve.axis or 'x'
+                            if axis == 'x' then
+                                draw_selected_marker(focused, 'x', mse_norm_x, win_x, win_y, win_w, win_h, options)
+                            else
+                                draw_selected_marker(focused, 'y', mse_norm_y, win_x, win_y, win_w, win_h, options)
                             end
-                            if val_x == nil then
-                                val_x = mse_norm_x
-                            end
-
-                            mappings.set_param_value(m, val_x)
-                            m.current_value = val_x
-
-                            ::continue_x::
-                        end
-
-                        -- Send values for all Y mappings
-                        for _, m in ipairs(mappings.get_mappings().y) do
-                            if m.bypass then goto continue_y end
-
-                            local val_y
-                            if m.curve_points and #m.curve_points >= 2 then
-                                val_y = evaluate_curve(mse_norm_y, m.curve_points)
-                            end
-                            if val_y == nil then
-                                val_y = mse_norm_y
-                            end
-
-                            mappings.set_param_value(m, val_y)
-                            m.current_value = val_y
-
-                            ::continue_y::
-                        end
-
-                        -- Choose the active mapping being edited for visual marker
-                        local selected_x = get_selected_mapping_for_axis('x')
-                        local selected_y = get_selected_mapping_for_axis('y')
-
-                        if selected_x and selected_x.current_value then
-                            -- X: show vertical movement (Y value from curve)
-                            local marker_x = win_x + mse_norm_x * win_w
-                            local marker_y = win_y + (1 - selected_x.current_value) * win_h
-                            ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, 4, options.cursor_color)
-
-                            local label = string.format("%.2f", selected_x.current_value)
-                            ImGui.DrawList_AddText(draw_list, win_x + 5, marker_y, 0xFF3366FF, label)
-                            
-                        elseif selected_y and selected_y.current_value then
-                            -- Y: input is mse_norm_y (horizontal axis on the curve), output is current_value (vertical axis)
-                            local marker_x = win_x + mse_norm_y * win_w
-                            local marker_y = win_y + (1 - selected_y.current_value) * win_h
-                            ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, 4, options.cursor_color)
-
-                            local label = string.format("%.2f", selected_y.current_value)
-                            local label_w, label_h = ImGui.CalcTextSize(_ctx, label)
-
-                            -- Position label above the pad, centered on marker_x
-                            local label_x = marker_x - (label_w * 0.5)
-                            local label_y = math.max(win_y + 2, win_y - label_h - 4)
-
-                            ImGui.DrawList_AddText(draw_list, label_x, label_y, 0xFF3366FF, label)
                         end
                         
                     else
@@ -362,7 +424,7 @@ local function render_heading(text)
     end, Trap)
 end
 
-local function render_mapping_group(m)
+local function render_mapping_group(axis, m)
     ImGui.BeginGroup(_ctx)
     Trap(function()
         local needs_save = false
@@ -414,6 +476,33 @@ local function render_mapping_group(m)
             ImGui.SameLine(_ctx)
             call_result, m.bypass = ImGui.Checkbox(_ctx, 'Bypass', m.bypass)
             if call_result then needs_save = true end
+
+            ImGui.SameLine(_ctx)
+            local changed_use_curve
+            changed_use_curve, m.use_curve = ImGui.Checkbox(_ctx, 'Use curve', m.use_curve ~= false)
+            if changed_use_curve then
+                m.use_curve = (m.use_curve ~= false)
+                needs_save = true
+            end
+
+            ImGui.SameLine(_ctx)
+            if ImGui.Button(_ctx, 'Edit curve') then
+                set_focused_curve(axis, m)
+            end
+
+            local visibility_options = { 'full', 'segments', 'points', 'none' }
+            local current_vis = m.curve_visibility or 'full'
+            if ImGui.BeginCombo(_ctx, 'Curve visibility', current_vis) then
+                for _, vis in ipairs(visibility_options) do
+                    local selected = (vis == current_vis)
+                    if ImGui.Selectable(_ctx, vis, selected) then
+                        m.curve_visibility = vis
+                        needs_save = true
+                        current_vis = vis
+                    end
+                end
+                ImGui.EndCombo(_ctx)
+            end
         end, Trap)
 
         if needs_save then
@@ -423,7 +512,7 @@ local function render_mapping_group(m)
     ImGui.EndGroup(_ctx)
 end
 
-local function render_mapping_table(title, ms)
+local function render_mapping_table(title, ms, axis)
     render_heading(title)
 
     if #ms == 0 then
@@ -438,7 +527,7 @@ local function render_mapping_table(title, ms)
     for i, m in ipairs(ms) do
         ImGui.PushID(_ctx, ("%s-mapping-%d"):format(title, i))
         Trap(function()
-            render_mapping_group(m)
+            render_mapping_group(axis, m)
             ImGui.Spacing(_ctx)
             ImGui.Spacing(_ctx)
 
@@ -482,11 +571,11 @@ local function render_mapping()
 
                 ImGui.Spacing(_ctx)
                 ImGui.Spacing(_ctx)
-                render_mapping_table('X Axis', ms.x)
+                render_mapping_table('X Axis', ms.x, 'x')
 
                 ImGui.Spacing(_ctx)
                 ImGui.Spacing(_ctx)
-                render_mapping_table('Y Axis', ms.y)
+                render_mapping_table('Y Axis', ms.y, 'y')
             end, Trap)
         end)
         ImGui.End(_ctx)

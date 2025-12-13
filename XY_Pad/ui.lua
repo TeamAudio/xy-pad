@@ -441,6 +441,10 @@ local function render_xy_pad(frame)
                 render_curves(draw_list, win)
                 local is_mouse_in_bounds = mouse_in_bounds(mse_screen_x, mse_screen_y, win)
 
+                if is_mouse_in_bounds then
+                    ImGui.SetMouseCursor(_ctx, 7)
+                end
+
                 needs_curve_save = process_curve_points(
                     win,
                     mse_norm_x, mse_norm_y,
@@ -448,8 +452,6 @@ local function render_xy_pad(frame)
                 ) or needs_curve_save
 
                 if is_mouse_in_bounds then
-                    ImGui.SetMouseCursor(_ctx, 7)
-                    
                     if ImGui.IsMouseDown(_ctx, 0) then
                         if not mouse_down then
                             mouse_down = true

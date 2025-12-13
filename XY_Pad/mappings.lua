@@ -11,7 +11,28 @@ local DEFAULT_MIN = 0.0
 local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
 local DEFAULT_USE_CURVE = true
-local DEFAULT_CURVE_VISIBILITY = 'full'
+local DEFAULT_CURVE_VISIBILITY = { segments = true, points = true }
+
+local function normalize_curve_visibility(vis)
+    if type(vis) == 'table' then
+        return {
+            segments = vis.segments ~= false,
+            points = vis.points ~= false,
+        }
+    end
+
+    if vis == 'full' then
+        return { segments = true, points = true }
+    elseif vis == 'segments' then
+        return { segments = true, points = false }
+    elseif vis == 'points' then
+        return { segments = false, points = true }
+    elseif vis == 'none' then
+        return { segments = false, points = false }
+    end
+
+    return { segments = true, points = true }
+end
 
 -- Builds a map of project tracks and their FX chains
 -- Returns a table with the following methods:
@@ -158,7 +179,7 @@ local function hydrate(mapping, validator)
         invert = mapping.invert or DEFAULT_INVERT,
         bypass = mapping.bypass or DEFAULT_BYPASS,
         use_curve = mapping.use_curve ~= nil and mapping.use_curve or DEFAULT_USE_CURVE,
-        curve_visibility = mapping.curve_visibility or DEFAULT_CURVE_VISIBILITY,
+        curve_visibility = normalize_curve_visibility(mapping.curve_visibility),
         curve_points = mapping.curve_points or {
             {x = 0, y = 0},
             {x = 1, y = 1}
@@ -391,5 +412,20 @@ return {
     remove_selected = remove_selected,
     set_params = set_params,
     is_empty = is_empty,
-    set_param_value = set_param_value
+    set_param_value = set_param_value,
+    with_mappings = function(f)
+        local all_mappings = get_mappings()
+        for _, m in ipairs(all_mappings.x) do f(m, 'x') end
+        for _, m in ipairs(all_mappings.y) do f(m, 'y') end
+    end,
+    find_mapping = function(f)
+        local all_mappings = get_mappings()
+        for _, m in ipairs(all_mappings.x) do
+            if f(m, 'x') then return m end
+        end
+        for _, m in ipairs(all_mappings.y) do
+            if f(m, 'y') then return m end
+        end
+        return nil
+    end
 }

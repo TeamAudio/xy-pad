@@ -148,7 +148,6 @@ local function dehydrate(mappings)
             use_curve = m.use_curve,
             curve_visibility = m.curve_visibility,
             curve_points = m.curve_points,
-            current_value = m.current_value,
             curve_color = m.curve_color,
             curve_thickness = m.curve_thickness,
             curve_point_radius = m.curve_point_radius,
@@ -332,22 +331,6 @@ local function remove_selected()
     save_mappings()
 end
 
-local function set_params(axis, value)
-    local mappings = axis == 'x' and xs or ys
-
-    for _, m in ipairs(mappings) do
-        if not m.bypass then
-            local adjusted_value = m.min + value * (m.max - m.min)
-
-            if m.invert then
-                adjusted_value = 1.0 - adjusted_value
-            end
-
-            reaper.TrackFX_SetParam(m.track, m.fx_number, m.param_number, adjusted_value)
-        end
-    end
-end
-
 -- Takes a single mapping object instead of all mappings on axis
 local function set_param_value(mapping, value)
     local adjusted_value = mapping.min + value * (mapping.max - mapping.min)
@@ -399,37 +382,6 @@ local function mapping_from_last_touched(axis)
     }
 end
 
--- Remember selected mapping so the curve can remain displayed when interacting
-local function remember_selection()
-    local remembered = { x = nil, y = nil }
-
-    for _, m in ipairs(xs) do
-        if m.selected then
-            remembered.x = m
-            break
-        end
-    end
-
-    for _, m in ipairs(ys) do
-        if m.selected then
-            remembered.y = m
-            break
-        end
-    end
-
-    return remembered
-end
-
--- Restore the mapping selection to what it was before interacting
-local function restore_selection(remembered)
-    for _, m in ipairs(xs) do
-        m.selected = (remembered.x and m.fx_guid == remembered.x.fx_guid and m.param_number == remembered.x.param_number)
-    end
-    for _, m in ipairs(ys) do
-        m.selected = (remembered.y and m.fx_guid == remembered.y.fx_guid and m.param_number == remembered.y.param_number)
-    end
-end
-
 return {
     reload_mappings = reload_mappings,
     get_mappings = get_mappings,
@@ -438,7 +390,6 @@ return {
     on_add_mapping = on_add_mapping,
     mapping_from_last_touched = mapping_from_last_touched,
     remove_selected = remove_selected,
-    set_params = set_params,
     is_empty = is_empty,
     set_param_value = set_param_value,
     with_mappings = function(f)

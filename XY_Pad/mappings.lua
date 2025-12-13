@@ -49,6 +49,39 @@ local function normalize_curve_visibility(vis)
     return { segments = true, points = true }
 end
 
+local function default_curve_points()
+    return {
+        { x = 0, y = 0 },
+        { x = 1, y = 1 },
+    }
+end
+
+local function normalize_curve_points(points)
+    if type(points) ~= 'table' then
+        return default_curve_points()
+    end
+
+    local normalized = {}
+    for _, pt in ipairs(points) do
+        if type(pt) == 'table' then
+            local x = tonumber(pt.x)
+            local y = tonumber(pt.y)
+            if x ~= nil and y ~= nil then
+                if x < 0 then x = 0 elseif x > 1 then x = 1 end
+                if y < 0 then y = 0 elseif y > 1 then y = 1 end
+                table.insert(normalized, { x = x, y = y })
+            end
+        end
+    end
+
+    if #normalized < 2 then
+        return default_curve_points()
+    end
+
+    table.sort(normalized, function(a, b) return a.x < b.x end)
+    return normalized
+end
+
 -- Builds a map of project tracks and their FX chains
 -- Returns a table with the following methods:
 --   get_track(guid) -> track, track_number
@@ -203,10 +236,7 @@ local function hydrate(mapping, validator)
         bypass = mapping.bypass or DEFAULT_BYPASS,
         use_curve = mapping.use_curve ~= nil and mapping.use_curve or DEFAULT_USE_CURVE,
         curve_visibility = normalize_curve_visibility(mapping.curve_visibility or default_curve_visibility()),
-        curve_points = mapping.curve_points or {
-            {x = 0, y = 0},
-            {x = 1, y = 1}
-        },
+        curve_points = normalize_curve_points(mapping.curve_points),
         curve_color = mapping.curve_color or DEFAULT_CURVE_COLOR,
         curve_thickness = mapping.curve_thickness or DEFAULT_CURVE_THICKNESS,
         curve_point_radius = mapping.curve_point_radius or DEFAULT_CURVE_POINT_RADIUS,
@@ -289,10 +319,7 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
         param_number = param_number,
         use_curve = DEFAULT_USE_CURVE,
         curve_visibility = default_curve_visibility(),
-        curve_points = {
-            {x = 0, y = 0},
-            {x = 1, y = 1}
-        },
+        curve_points = default_curve_points(),
         curve_color = pick_curve_color(axis),
         curve_thickness = DEFAULT_CURVE_THICKNESS,
         curve_point_radius = DEFAULT_CURVE_POINT_RADIUS,

@@ -12,6 +12,19 @@ local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
 local DEFAULT_USE_CURVE = true
 local DEFAULT_CURVE_VISIBILITY = { segments = true, points = true }
+local DEFAULT_CURVE_COLOR = 0xFF3366FF
+local DEFAULT_CURVE_THICKNESS = 2
+local DEFAULT_CURVE_POINT_RADIUS = 4
+local CURVE_COLORS = {
+    0xFF3366FF, -- blue
+    0xFF33CC99, -- teal
+    0xFFFF9933, -- orange
+    0xFFCC33FF, -- purple
+    0xFFFF3355, -- red-pink
+    0xFF33CCFF, -- cyan
+    0xFF66CC33, -- green
+    0xFFFFCC33, -- yellow-orange
+}
 
 local function normalize_curve_visibility(vis)
     if type(vis) == 'table' then
@@ -113,6 +126,12 @@ local function get_mappings()
     return { x = xs, y = ys }
 end
 
+local function pick_curve_color(axis)
+    local total = #xs + #ys
+    local idx = (total % #CURVE_COLORS) + 1
+    return CURVE_COLORS[idx]
+end
+
 -- Converts mappings to a dehydrated format for persistence
 local function dehydrate(mappings)
     local dehydrated = {}
@@ -129,7 +148,10 @@ local function dehydrate(mappings)
             use_curve = m.use_curve,
             curve_visibility = m.curve_visibility,
             curve_points = m.curve_points,
-            current_value = m.current_value
+            current_value = m.current_value,
+            curve_color = m.curve_color,
+            curve_thickness = m.curve_thickness,
+            curve_point_radius = m.curve_point_radius,
         })
     end
 
@@ -184,6 +206,9 @@ local function hydrate(mapping, validator)
             {x = 0, y = 0},
             {x = 1, y = 1}
         },
+        curve_color = mapping.curve_color or DEFAULT_CURVE_COLOR,
+        curve_thickness = mapping.curve_thickness or DEFAULT_CURVE_THICKNESS,
+        curve_point_radius = mapping.curve_point_radius or DEFAULT_CURVE_POINT_RADIUS,
         current_value = 0.0 -- output of the evaluated mapping curve updated each frame
     }
 end
@@ -266,7 +291,10 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
         curve_points = {
             {x = 0, y = 0},
             {x = 1, y = 1}
-        }
+        },
+        curve_color = pick_curve_color(axis),
+        curve_thickness = DEFAULT_CURVE_THICKNESS,
+        curve_point_radius = DEFAULT_CURVE_POINT_RADIUS,
     }
 
     if exists(m) then

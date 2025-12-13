@@ -12,6 +12,7 @@ local theme = require 'theme'
 local Trap = require 'trap'
 
 local RIGHT_BTN = ImGui.MouseButton_Right or 1
+local DEFAULT_CURVE_COLOR = 0xFF3366FF
 
 local IMGUI_CONTEXT_NAME = 'XY Pad'
 local STORAGE_SECTION = 'XYPad.General'
@@ -80,6 +81,22 @@ end
 
 -- Mapping curves
 local dragging_point_index = nil
+local dragging_point_dirty = false
+
+local function sort_curve(curve_points)
+    if not curve_points or #curve_points < 2 then return end
+    table.sort(curve_points, function(a, b) return a.x < b.x end)
+end
+
+local function sorted_curve_points(points)
+    if not points then return {} end
+    local ordered = {}
+    for _, p in ipairs(points) do
+        table.insert(ordered, p)
+    end
+    sort_curve(ordered)
+    return ordered
+end
 
 -- Curve helpers
 local function toggle_editing_mapping(m)
@@ -109,7 +126,7 @@ local function handle_point_hover_and_delete(editing_curve, win)
 
             if ImGui.IsMouseClicked(_ctx, RIGHT_BTN) and ImGui.GetKeyMods(_ctx) ~= ImGui.Mod_Alt then
                 dragging_point_index = i
-                needs_curve_save = true
+                dragging_point_dirty = false
             end
 
             if not is_endpoint
@@ -137,18 +154,21 @@ local function handle_point_drag(editing_curve, win)
     new_y = math.max(0, math.min(1, new_y))
 
     local is_endpoint = (dragging_point_index == 1 or dragging_point_index == #editing_curve)
+
+    local old_x, old_y = pt.x, pt.y
+
     if is_endpoint then -- x-clamping for endpoints
         pt.y = new_y
     else -- full x/y for interior points
         pt.x = new_x
         pt.y = new_y
-        table.sort(editing_curve, function(a, b) return a.x < b.x end)
-        for i, p in ipairs(editing_curve) do
-            if p == pt then dragging_point_index = i break end
-        end
     end
 
-    return true
+    if pt.x ~= old_x or pt.y ~= old_y then
+        dragging_point_dirty = true
+    end
+
+    return dragging_point_dirty
 end
 
 local function render_curve(draw_list, m, win)
@@ -158,14 +178,24 @@ local function render_curve(draw_list, m, win)
     local is_editing = m.is_editing
 
     local point_radius = m.curve_point_radius or 4
-    local point_color = m.curve_color or 0xFF3366FF
+    local point_color = m.curve_color or DEFAULT_CURVE_COLOR
     local line_thickness = m.curve_thickness or 2
-    local line_color = m.curve_color or 0xFF3366FF
+    local line_color = m.curve_color or DEFAULT_CURVE_COLOR
 
-    for i, pt in ipairs(m.curve_points) do
+    -- During an active drag, render using an x-sorted view so segments always connect left-to-right
+    -- without mutating persisted point order every frame. Otherwise, render the stored order
+    -- (which is already sorted on add/save).
+    local ordered_points
+    if is_editing and dragging_point_index then
+        ordered_points = sorted_curve_points(m.curve_points)
+    else
+        ordered_points = m.curve_points
+    end
 
-        if (is_editing or vis.segments) and i < #m.curve_points then
-            local p2 = m.curve_points[i + 1]
+    for i, pt in ipairs(ordered_points) do
+
+        if (is_editing or vis.segments) and i < #ordered_points then
+            local p2 = ordered_points[i + 1]
             local x2, y2 = norm_to_screen(win, p2)
             local x1, y1 = norm_to_screen(win, pt)
 
@@ -207,6 +237,7 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
     local editing_mapping = mappings.find_mapping(function(m) return m.is_editing end)
     if not editing_mapping then
         dragging_point_index = nil
+        dragging_point_dirty = false
         return false
     end
 
@@ -220,14 +251,22 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
         and ImGui.IsMouseClicked(_ctx, RIGHT_BTN)
         and ImGui.GetKeyMods(_ctx) == 0 then
         table.insert(editing_curve, { x = mse_norm_x, y = mse_norm_y })
-        table.sort(editing_curve, function(a, b) return a.x < b.x end)
+        sort_curve(editing_curve)
         needs_curve_save = true
     end
 
-    if dragging_point_index and ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Drag existing point
-        needs_curve_save = handle_point_drag(editing_curve, win) or needs_curve_save
-    elseif not ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Release drag
+    if dragging_point_index and ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Drag existing point (in-memory only)
+        handle_point_drag(editing_curve, win)
+    elseif dragging_point_index and not ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Release drag (commit)
+        if dragging_point_dirty then
+            local was_endpoint = (dragging_point_index == 1 or dragging_point_index == #editing_curve)
+            if not was_endpoint then
+                sort_curve(editing_curve)
+            end
+            needs_curve_save = true
+        end
         dragging_point_index = nil
+        dragging_point_dirty = false
     end
 
     return needs_curve_save
@@ -261,6 +300,9 @@ local function evaluate_curve(x, curve_points)
     for i = 1, #curve_points - 1 do
         local p1, p2 = curve_points[i], curve_points[i+1]
         if x >= p1.x and x <= p2.x then
+            if p2.x == p1.x then
+                return p1.y
+            end
             local t = (x - p1.x) / (p2.x - p1.x)
             return p1.y * (1 - t) + p2.y * t
         end

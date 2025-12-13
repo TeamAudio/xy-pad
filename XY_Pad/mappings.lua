@@ -219,7 +219,7 @@ local function validated(mappings)
 
   for _, m in ipairs(mappings) do
       if validator.is_valid(m) then
-          table.insert(validated_mappings, hydrate(m))
+          table.insert(validated_mappings, hydrate(m, validator))
       end
   end
 

@@ -12,7 +12,6 @@ local theme = require 'theme'
 local Trap = require 'trap'
 
 local RIGHT_BTN = ImGui.MouseButton_Right or 1
-local DEFAULT_CURVE_COLOR = 0xFF3366FF
 
 local IMGUI_CONTEXT_NAME = 'XY Pad'
 local STORAGE_SECTION = 'XYPad.General'
@@ -178,9 +177,9 @@ local function render_curve(draw_list, m, win)
     local is_editing = m.is_editing
 
     local point_radius = m.curve_point_radius or 4
-    local point_color = m.curve_color or DEFAULT_CURVE_COLOR
+    local point_color = m.curve_color
     local line_thickness = m.curve_thickness or 2
-    local line_color = m.curve_color or DEFAULT_CURVE_COLOR
+    local line_color = m.curve_color
 
     -- During an active drag, render using an x-sorted view so segments always connect left-to-right
     -- without mutating persisted point order every frame. Otherwise, render the stored order

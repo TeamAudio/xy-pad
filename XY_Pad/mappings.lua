@@ -360,6 +360,61 @@ local function remove_selected()
     save_mappings()
 end
 
+local function fx_number_matches_guid(track, fx_number, fx_guid)
+    if not track or fx_number == nil or not fx_guid then
+        return false
+    end
+
+    if fx_number < 0 then
+        return false
+    end
+
+    local fx_count = reaper.TrackFX_GetCount(track)
+    if fx_number >= fx_count then
+        return false
+    end
+
+    return reaper.TrackFX_GetFXGUID(track, fx_number) == fx_guid
+end
+
+local function find_fx_number_by_guid(track, fx_guid)
+    if not track or not fx_guid then
+        return nil
+    end
+
+    local fx_count = reaper.TrackFX_GetCount(track)
+    for i = 0, fx_count - 1 do
+        if reaper.TrackFX_GetFXGUID(track, i) == fx_guid then
+            return i
+        end
+    end
+
+    return nil
+end
+
+local function ensure_fx_number(mapping)
+    if not mapping or not mapping.track or not mapping.fx_guid then
+        return false
+    end
+
+    if fx_number_matches_guid(mapping.track, mapping.fx_number, mapping.fx_guid) then
+        return true
+    end
+
+    local resolved = find_fx_number_by_guid(mapping.track, mapping.fx_guid)
+    if resolved ~= nil then
+        mapping.fx_number = resolved
+        return true
+    end
+
+    if not mapping._warned_missing_fx then
+        mapping._warned_missing_fx = true
+        log(('FX no longer found for mapping: %s'):format(mapping.mapping_name or '<unknown>'))
+    end
+
+    return false
+end
+
 -- Takes a single mapping object instead of all mappings on axis
 local function set_param_value(mapping, value)
     local adjusted_value = mapping.min + value * (mapping.max - mapping.min)
@@ -368,7 +423,7 @@ local function set_param_value(mapping, value)
         adjusted_value = 1.0 - adjusted_value
     end
 
-    if not mapping.bypass and mapping.track and mapping.fx_number then
+    if not mapping.bypass and ensure_fx_number(mapping) and mapping.param_number ~= nil then
         reaper.TrackFX_SetParam(mapping.track, mapping.fx_number, mapping.param_number, adjusted_value)
     end
 end

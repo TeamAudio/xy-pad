@@ -157,10 +157,10 @@ local function render_curve(draw_list, m, win)
     local vis = visibility_flags(m.curve_visibility)
     local is_editing = m.is_editing
 
-    local point_radius = 4
-    local point_color = 0xFF3366FF
-    local line_thickness = 2
-    local line_color = 0xFF3366FF
+    local point_radius = m.curve_point_radius or 4
+    local point_color = m.curve_color or 0xFF3366FF
+    local line_thickness = m.curve_thickness or 2
+    local line_color = m.curve_color or 0xFF3366FF
 
     for i, pt in ipairs(m.curve_points) do
 
@@ -240,14 +240,16 @@ end
 local function draw_mapping_marker(draw_list, m, input_norm, win, options)
     if not (m and m.current_value) or m.bypass then return end
     local marker_x, marker_y = marker_position(input_norm, m.current_value, win)
-    ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, 4, options.cursor_color)
+    local color = m.curve_color or options.cursor_color
+    local radius = m.curve_point_radius or 4
+    ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, radius, color)
 
     -- Attach a small label to the marker so values are visible while dragging
     local label = string.format('%.2f', m.current_value)
     local label_w, label_h = ImGui.CalcTextSize(_ctx, label)
     local label_x = math.min(win.x + win.w - label_w - 2, marker_x + 6)
     local label_y = math.max(win.y + 2, marker_y - label_h - 2)
-    ImGui.DrawList_AddText(draw_list, label_x, label_y, 0xFF3366FF, label)
+    ImGui.DrawList_AddText(draw_list, label_x, label_y, color, label)
 end
 
 -- Evaluate mapping curve for a normalized input in [0,1]
@@ -489,9 +491,8 @@ local function render_mapping_group(axis, m)
             if call_result then needs_save = true end
 
             ImGui.SameLine(_ctx)
-            local changed_use_curve
-            changed_use_curve, m.use_curve = ImGui.Checkbox(_ctx, 'Use curve', m.use_curve ~= false)
-            if changed_use_curve then
+            call_result, m.use_curve = ImGui.Checkbox(_ctx, 'Use curve', m.use_curve ~= false)
+            if call_result then
                 m.use_curve = (m.use_curve ~= false)
                 needs_save = true
             end
@@ -506,13 +507,11 @@ local function render_mapping_group(axis, m)
             local vis_flags = visibility_flags(m.curve_visibility)
             local preview = visibility_label(vis_flags)
             if ImGui.BeginCombo(_ctx, 'Curve visibility', preview) then
-                local changed
-                changed, vis_flags.segments = ImGui.Checkbox(_ctx, 'segments', vis_flags.segments)
-                if changed then needs_save = true end
+                call_result, vis_flags.segments = ImGui.Checkbox(_ctx, 'segments', vis_flags.segments)
+                if call_result then needs_save = true end
 
-                changed, vis_flags.points = ImGui.Checkbox(_ctx, 'points', vis_flags.points)
-                if changed then needs_save = true end
-
+                call_result, vis_flags.points = ImGui.Checkbox(_ctx, 'points', vis_flags.points)
+                if call_result then needs_save = true end
                 m.curve_visibility = {
                     segments = vis_flags.segments,
                     points = vis_flags.points,
@@ -520,6 +519,18 @@ local function render_mapping_group(axis, m)
 
                 ImGui.EndCombo(_ctx)
             end
+
+            call_result, new_color = ImGui.ColorEdit4(_ctx, 'Curve color', m.curve_color)
+            if call_result then
+                m.curve_color = new_color
+                needs_save = true
+            end
+
+            call_result, m.curve_thickness = ImGui.SliderInt(_ctx, 'Curve thickness', m.curve_thickness or 2, 1, 6, '%d')
+            if call_result then needs_save = true end
+
+            call_result, m.curve_point_radius = ImGui.SliderInt(_ctx, 'Point radius', m.curve_point_radius or 4, 2, 20, '%d')
+            if call_result then needs_save = true end
         end, Trap)
 
         if needs_save then

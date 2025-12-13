@@ -112,13 +112,16 @@ local function toggle_editing_mapping(m)
     end
 end
 
-local function handle_point_hover_and_delete(editing_curve, win)
+local function handle_point_hover_and_delete(editing_curve, win, hover_radius)
     local needs_curve_save = false
+
+    hover_radius = hover_radius or 6
 
     for i, pt in ipairs(editing_curve or {}) do
         local is_endpoint = (i == 1 or i == #editing_curve)
         local px, py = norm_to_screen(win, pt)
-        local radius = 6
+
+        local radius = hover_radius
 
         if ImGui.IsMouseHoveringRect(_ctx, px - radius, py - radius, px + radius, py + radius) then
             ImGui.SetMouseCursor(_ctx, ImGui.MouseCursor_Hand)
@@ -242,7 +245,10 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
 
     local editing_curve = editing_mapping.curve_points or {}
 
-    local needs_curve_save = handle_point_hover_and_delete(editing_curve, win)
+    local point_radius = editing_mapping.curve_point_radius or 4
+    local hover_radius = math.max(6, point_radius + 3)
+
+    local needs_curve_save = handle_point_hover_and_delete(editing_curve, win, hover_radius)
 
     -- Add new point on right-click if not dragging existing point
     if not dragging_point_index

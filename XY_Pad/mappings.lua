@@ -11,7 +11,9 @@ local DEFAULT_MIN = 0.0
 local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
 local DEFAULT_USE_CURVE = true
-local DEFAULT_CURVE_VISIBILITY = { segments = true, points = true }
+local function default_curve_visibility()
+    return { segments = true, points = true }
+end
 local DEFAULT_CURVE_COLOR = 0xFF3366FF
 local DEFAULT_CURVE_THICKNESS = 2
 local DEFAULT_CURVE_POINT_RADIUS = 4
@@ -200,7 +202,7 @@ local function hydrate(mapping, validator)
         invert = mapping.invert or DEFAULT_INVERT,
         bypass = mapping.bypass or DEFAULT_BYPASS,
         use_curve = mapping.use_curve ~= nil and mapping.use_curve or DEFAULT_USE_CURVE,
-        curve_visibility = normalize_curve_visibility(mapping.curve_visibility),
+        curve_visibility = normalize_curve_visibility(mapping.curve_visibility or default_curve_visibility()),
         curve_points = mapping.curve_points or {
             {x = 0, y = 0},
             {x = 1, y = 1}
@@ -286,7 +288,7 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
         fx_guid = fx_guid,
         param_number = param_number,
         use_curve = DEFAULT_USE_CURVE,
-        curve_visibility = DEFAULT_CURVE_VISIBILITY,
+        curve_visibility = default_curve_visibility(),
         curve_points = {
             {x = 0, y = 0},
             {x = 1, y = 1}

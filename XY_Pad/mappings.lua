@@ -219,6 +219,13 @@ local function hydrate(mapping, validator)
 
     local mapping_name = ("%s - %s on '%s'"):format(fx_name, param_name, track_name)
 
+    local use_curve
+    if mapping.use_curve == nil then
+        use_curve = DEFAULT_USE_CURVE
+    else
+        use_curve = mapping.use_curve
+    end
+
     return {
         track = track,
         track_guid = track_guid,
@@ -234,7 +241,7 @@ local function hydrate(mapping, validator)
         min = mapping.min or DEFAULT_MIN,
         invert = mapping.invert or DEFAULT_INVERT,
         bypass = mapping.bypass or DEFAULT_BYPASS,
-        use_curve = mapping.use_curve ~= nil and mapping.use_curve or DEFAULT_USE_CURVE,
+        use_curve = use_curve,
         curve_visibility = normalize_curve_visibility(mapping.curve_visibility or default_curve_visibility()),
         curve_points = normalize_curve_points(mapping.curve_points),
         curve_color = mapping.curve_color or DEFAULT_CURVE_COLOR,

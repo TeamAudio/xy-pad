@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shutil
 import subprocess
@@ -16,7 +15,13 @@ class ReaPackPublishError(RuntimeError):
     pass
 
 
-PROVIDES_LINE_RE = re.compile(r"^--\s{0,2}(?P<body>.*)$")
+# ReaPack is whitespace-tolerant; accept indentation and any whitespace around the Lua comment
+# prefix. We parse the content after `--`.
+PROVIDES_LINE_RE = re.compile(r"^\s*--\s*(?P<body>.*)$")
+
+# Detect meta directives like `--@version` (optionally spaced/indented: ` -- @version`).
+DIRECTIVE_LINE_RE = re.compile(r"^\s*--\s*@")
+PROVIDES_START_RE = re.compile(r"^\s*--\s*@provides\b")
 
 
 @dataclass(frozen=True)
@@ -31,12 +36,25 @@ def _read_text(path: Path) -> str:
 
 
 def _run(command: list[str], *, cwd: Path) -> None:
-    proc = subprocess.run(command, cwd=str(cwd), text=True)
+    proc = subprocess.run(command, cwd=str(cwd), text=True, capture_output=True)
     if proc.returncode != 0:
-        raise ReaPackPublishError(f"Command failed ({proc.returncode}): {' '.join(command)}")
+        raise ReaPackPublishError(
+            f"Command failed ({proc.returncode}): {' '.join(command)}\n"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
+        )
 
 
 def _parse_provides(reapack_file: Path) -> list[ProvidesEntry]:
+    """Parse the `--@provides` block from a ReaPack metapackage file.
+
+    Supported line forms within the provides block:
+    - `[opts] path` or `path`: provides a single file path (options are ignored here)
+    - `source > target`: provides a mapping
+    - URLs are detected (http/https) and are not currently handled by sync automation
+
+    Parsing stops when the next `--@...` directive is encountered.
+    """
     text = _read_text(reapack_file)
     lines = text.split("\n")
 
@@ -44,14 +62,15 @@ def _parse_provides(reapack_file: Path) -> list[ProvidesEntry]:
     entries: list[ProvidesEntry] = []
 
     for raw in lines:
-        if raw.startswith("--@provides"):
+        if PROVIDES_START_RE.match(raw):
             in_provides = True
             continue
 
         if not in_provides:
             continue
 
-        if raw.startswith("--@"):
+        # Stop when we hit the next directive tag.
+        if DIRECTIVE_LINE_RE.match(raw):
             break
 
         match = PROVIDES_LINE_RE.match(raw)
@@ -68,7 +87,7 @@ def _parse_provides(reapack_file: Path) -> list[ProvidesEntry]:
             if end != -1:
                 body = body[end + 1 :].strip()
 
-        # Drop leading comment decoration used in this repo (two-space indent after --)
+        # Drop any leading whitespace after the comment prefix.
         body = body.strip()
 
         # Split mapping.

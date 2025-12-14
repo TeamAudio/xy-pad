@@ -41,8 +41,8 @@ jobs:
 
           BRANCH="release-prep/v${VERSION}-${GITHUB_RUN_ID}"
 
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
 
           git checkout -b "$BRANCH"
           git add -A \

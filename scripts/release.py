@@ -102,10 +102,20 @@ def _stamp_reapack_file(
     version: SemVer,
     release_notes_md: str,
 ) -> None:
+    """Stamp a ReaPack template with version + changelog.
+
+    Replaces the template's `--@version` line with `--@version <x.y.z>` and inserts changelog
+    lines immediately after `--@changelog`. Each line of `release_notes_md` becomes a `--  ...`
+    comment line; blank lines are preserved as `--  `.
+    """
     template = _read_text(template_path)
 
     # Replace the @version line.
-    out = re.sub(r"(?m)^--@version\s*$", f"--@version {version}", template)
+    out, n = re.subn(r"(?m)^--@version\s*$", f"--@version {version}", template)
+    if n != 1:
+        raise ReleaseError(
+            f"Template must contain exactly one --@version line (found {n}): {template_path}"
+        )
 
     # Insert changelog lines immediately after --@changelog.
     if "--@changelog" not in out:
@@ -132,6 +142,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     changes_out_dir = repo_root / args.changes_out_dir
     reapack_template = repo_root / args.reapack_template
     reapack_out = repo_root / args.reapack_out
+
+    if not current_version_path.exists():
+        raise ReleaseError(
+            f"Version file not found: {current_version_path}. Please create it with an initial version."
+        )
 
     current_version_raw = _read_text(current_version_path).strip()
     current = SemVer.parse(current_version_raw)
@@ -161,7 +176,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             try:
                 file_path.unlink()
             except FileNotFoundError:
-                pass
+                print(f"warning: pending note already removed: {file_path}", file=sys.stderr)
 
     print(f"bump_level={bump_level}")
     print(f"version={new_version}")

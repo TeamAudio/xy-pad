@@ -1,0 +1,52 @@
+name: Publish GitHub Release Notes to website repo
+
+on:
+  release:
+    types: [edited]
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Project ID'
+        required: true
+        default: 'xy-pad'
+      project_name:
+        description: 'Project name'
+        required: true
+        default: 'XY Pad'
+      project_repository:
+        description: 'GitHub repository where the project is hosted'
+        required: true
+        default: 'TeamAudio/xy-pad'
+      version_tag:
+        description: 'Version tag (vX.Y.Z)'
+        required: true
+        default: 'v0.0.1-test'
+      release_body:
+        description: 'Release body content'
+        required: true
+        default: 'Release body content goes here'
+
+jobs:
+  publish-release-notes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout techaudio-web
+        uses: actions/checkout@v4
+        with:
+          repository: TeamAudio/techaudio-web
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
+          path: techaudio-web
+
+      - name: Call publish-release action
+        uses: ./techaudio-web/.github/actions/publish-release
+        with:
+          project_id: ${{ github.event.inputs.project_id || 'xy-pad' }}
+          project_name: ${{ github.event.inputs.project_name || 'XY Pad' }}
+          project_repository: ${{ github.event.inputs.project_repository || github.repository }}
+          version_tag: ${{ github.event.inputs.version_tag || github.event.release.tag_name }}
+          release_body: ${{ github.event.inputs.release_body || github.event.release.body }}
+          service_token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
+          latest_release_url: ${{ vars.LATEST_RELEASE_URL || '' }}

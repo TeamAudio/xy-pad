@@ -15,29 +15,29 @@
 --@link https://techaud.io
 --@link https://github.com/TeamAudio
 --@link https://discord.gg/fCnkP9PhTQ
---@version 1.0
+--@version 1.0.0
 --@category FX
 --@author Tech Audio
 --@changelog
 --  Initial release
 --@provides
 --  [nomain] .
---  [main] xypad/TA_XY Pad.lua
---  [main] xypad/TA_XY Pad Set X.lua
---  [main] xypad/TA_XY Pad Set Y.lua
---  [main] xypad/TA_XY Pad Full Reset.lua
---  [lua] xypad/config.lua
---  [lua] xypad/dkjson.lua
---  [lua] xypad/extstate.lua
---  [lua] xypad/fonts.lua
---  [lua] xypad/help.lua
---  [lua] xypad/imgui_theme.lua
---  [lua] xypad/logging.lua
---  [lua] xypad/mappings.lua
---  [lua] xypad/storage.lua
---  [lua] xypad/theme.lua
---  [lua] xypad/training.lua
---  [lua] xypad/trap.lua
---  [lua] xypad/ui.lua
---  [lua] xypad/widgets.lua
+--  [main] XY_Pad/TA_XY Pad.lua
+--  [main] XY_Pad/TA_XY Pad Set X.lua
+--  [main] XY_Pad/TA_XY Pad Set Y.lua
+--  [main] XY_Pad/TA_XY Pad Full Reset.lua
+--  [lua] XY_Pad/config.lua
+--  [lua] XY_Pad/dkjson.lua
+--  [lua] XY_Pad/extstate.lua
+--  [lua] XY_Pad/fonts.lua
+--  [lua] XY_Pad/help.lua
+--  [lua] XY_Pad/imgui_theme.lua
+--  [lua] XY_Pad/logging.lua
+--  [lua] XY_Pad/mappings.lua
+--  [lua] XY_Pad/storage.lua
+--  [lua] XY_Pad/theme.lua
+--  [lua] XY_Pad/training.lua
+--  [lua] XY_Pad/trap.lua
+--  [lua] XY_Pad/ui.lua
+--  [lua] XY_Pad/widgets.lua
 

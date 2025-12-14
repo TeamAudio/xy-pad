@@ -81,6 +81,21 @@ local function visibility_label(flags)
     return table.concat(parts, ', ')
 end
 
+local function clamp_int(value, default, min_val, max_val)
+    local n = tonumber(value)
+    if n == nil then
+        n = default
+    end
+    n = math.floor(n + 0.5)
+    if n < min_val then
+        return min_val
+    end
+    if n > max_val then
+        return max_val
+    end
+    return n
+end
+
 -- Mapping curves
 local dragging_point_index = nil
 local dragging_point_dirty = false
@@ -207,9 +222,9 @@ local function render_curve(draw_list, m, win, axis)
     local vis = visibility_flags(m.curve_visibility)
     local is_editing = m.is_editing
 
-    local point_radius = m.curve_point_radius or 4
+    local point_radius = clamp_int(m.curve_point_radius, 4, 2, 20)
     local point_color = m.curve_color
-    local line_thickness = m.curve_thickness or 2
+    local line_thickness = clamp_int(m.curve_thickness, 2, 1, 6)
     local line_color = m.curve_color
 
     -- During an active drag, render using an x-sorted view so segments always connect left-to-right
@@ -277,7 +292,7 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
 
     local editing_curve = editing_mapping.curve_points or {}
 
-    local point_radius = editing_mapping.curve_point_radius or 4
+    local point_radius = clamp_int(editing_mapping.curve_point_radius, 4, 2, 20)
     local hover_radius = math.max(6, point_radius + 3)
 
     local needs_curve_save = handle_point_hover_and_delete(editing_curve, win, axis, hover_radius)
@@ -321,7 +336,7 @@ local function draw_mapping_marker(draw_list, m, axis, input_norm, win, options)
     if not (m and m.current_value) or m.bypass then return end
     local marker_x, marker_y = marker_position(axis, input_norm, m.current_value, win)
     local color = m.curve_color or options.cursor_color
-    local radius = m.curve_point_radius or 4
+    local radius = clamp_int(m.curve_point_radius, 4, 2, 20)
     ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, radius, color)
 
     -- Attach a small label to the marker so values are visible while dragging
@@ -607,17 +622,34 @@ local function render_mapping_group(axis, m)
                 ImGui.EndCombo(_ctx)
             end
 
+            local new_color
             call_result, new_color = ImGui.ColorEdit4(_ctx, 'Curve color', m.curve_color)
             if call_result then
                 m.curve_color = new_color
                 needs_save = true
             end
 
-            call_result, m.curve_thickness = ImGui.SliderInt(_ctx, 'Curve thickness', m.curve_thickness or 2, 1, 6, '%d')
-            if call_result then needs_save = true end
+            local thickness = clamp_int(m.curve_thickness, 2, 1, 6)
+            if m.curve_thickness ~= thickness then
+                m.curve_thickness = thickness
+                needs_save = true
+            end
+            call_result, thickness = ImGui.SliderInt(_ctx, 'Curve thickness', thickness, 1, 6, '%d')
+            if call_result then
+                m.curve_thickness = thickness
+                needs_save = true
+            end
 
-            call_result, m.curve_point_radius = ImGui.SliderInt(_ctx, 'Point radius', m.curve_point_radius or 4, 2, 20, '%d')
-            if call_result then needs_save = true end
+            local radius = clamp_int(m.curve_point_radius, 4, 2, 20)
+            if m.curve_point_radius ~= radius then
+                m.curve_point_radius = radius
+                needs_save = true
+            end
+            call_result, radius = ImGui.SliderInt(_ctx, 'Point radius', radius, 2, 20, '%d')
+            if call_result then
+                m.curve_point_radius = radius
+                needs_save = true
+            end
         end, Trap)
 
         if needs_save then
@@ -663,8 +695,10 @@ local function render_mapping()
 
     local parameter_window_flags
         = ImGui.WindowFlags_NoDocking
-        | ImGui.WindowFlags_AlwaysAutoResize
         | ImGui.WindowFlags_NoCollapse
+
+    -- Give the window a reasonable default size; allow user resizing after.
+    ImGui.SetNextWindowSize(_ctx, 520, 700, ImGui.Cond_FirstUseEver)
 
     local visible, open = ImGui.Begin(_ctx, 'Mappings', true, parameter_window_flags)
     if visible then
@@ -686,11 +720,20 @@ local function render_mapping()
 
                 ImGui.Spacing(_ctx)
                 ImGui.Spacing(_ctx)
-                render_mapping_table('X Axis', ms.x, 'x')
 
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
-                render_mapping_table('Y Axis', ms.y, 'y')
+                local child_flags = ImGui.ChildFlags_FrameStyle
+                ImGui.BeginChild(_ctx, 'mappings-scroll', 0, 0, child_flags, 0)
+                Trap(function()
+                    render_mapping_table('X Axis', ms.x, 'x')
+
+                    ImGui.Spacing(_ctx)
+                    ImGui.Spacing(_ctx)
+                    render_mapping_table('Y Axis', ms.y, 'y')
+
+                    -- Bottom padding so the final mapping controls aren't clipped
+                    ImGui.Dummy(_ctx, 0, 24)
+                end)
+                ImGui.EndChild(_ctx)
             end, Trap)
         end)
         ImGui.End(_ctx)

@@ -1,0 +1,90 @@
+name: Publish to ReaPack (PR to reascripts)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  reapack-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout xy-pad
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout reascripts
+        uses: actions/checkout@v4
+        with:
+          repository: TeamAudio/reascripts
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.REASCRIPTS_PUBLISH_TOKEN }}
+          path: reascripts
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install reapack-index
+        run: |
+          gem install reapack-index
+
+      - name: Sync files + update index.xml
+        run: |
+          python3 scripts/reapack_publish.py sync --reascripts-root reascripts --run-index
+
+      - name: Create PR in reascripts
+        env:
+          GH_TOKEN: ${{ secrets.REASCRIPTS_PUBLISH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.ref_name }}"
+          BRANCH="reapack/xy-pad/${TAG}-${GITHUB_RUN_ID}"
+
+          pushd reascripts >/dev/null
+
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+          git checkout -b "$BRANCH"
+          git add -A \
+            FX/XY_Pad-ReaPack.lua \
+            FX/XY_Pad \
+            index.xml
+
+          if git diff --cached --quiet; then
+            echo "No changes staged; nothing to PR."
+            exit 0
+          fi
+
+          git commit -m "ReaPack: XY Pad ${TAG}"
+          git push origin "$BRANCH"
+
+          gh label create reapack --description "ReaPack publish" --color "0e8a16" --force
+          gh label create xy-pad --description "XY Pad" --color "1d76db" --force
+
+          gh pr create \
+            --title "ReaPack: XY Pad ${TAG}" \
+            --body "Automated ReaPack publish for ${TAG}." \
+            --base main \
+            --head "$BRANCH" \
+            --label reapack \
+            --label xy-pad
+
+          popd >/dev/null

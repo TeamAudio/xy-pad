@@ -1,0 +1,69 @@
+name: Prepare Release (PR)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare release files
+        id: prep
+        run: |
+          python3 scripts/release.py prepare
+
+      - name: Create release prep PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.prep.outputs.version }}"
+          BUMP_LEVEL="${{ steps.prep.outputs.bump_level }}"
+          CHANGES_FILE="${{ steps.prep.outputs.changes_file }}"
+
+          BRANCH="release-prep/v${VERSION}-${GITHUB_RUN_ID}"
+
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+          git checkout -b "$BRANCH"
+          git add -A \
+            XY_Pad/releases/current.txt \
+            "XY_Pad/releases/changes-${VERSION}.md" \
+            XY_Pad/releases/pending \
+            XY_Pad-ReaPack.lua
+
+          if git diff --cached --quiet; then
+            echo "No changes staged; nothing to PR."
+            exit 1
+          fi
+
+          git commit -m "Release prep v${VERSION}"
+          git push origin "$BRANCH"
+
+          gh label create release-prep --description "Automated release prep PR" --color "5319e7" --force
+
+          gh pr create \
+            --title "Release prep v${VERSION}" \
+            --body "Automated release prep.\n\n- Version: v${VERSION}\n- Bump level: ${BUMP_LEVEL}\n- Notes: ${CHANGES_FILE}" \
+            --base main \
+            --head "$BRANCH" \
+            --label release-prep

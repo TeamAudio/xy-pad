@@ -21,6 +21,8 @@ local DEFAULT_CURSOR_COLOR = 0xFF0000FF
 local DEFAULT_CURSOR_RADIUS = 10
 local DEFAULT_CURSOR_STROKE = 2
 
+local DEFAULT_TRANSPOSE_Y_CURVE = true
+
 local function save_config(config)
   local json_str = json.encode(config)
 
@@ -46,6 +48,10 @@ local function default_config()
     cursor_color = DEFAULT_CURSOR_COLOR,
     cursor_radius = DEFAULT_CURSOR_RADIUS,
     cursor_stroke = DEFAULT_CURSOR_STROKE,
+
+    -- When enabled, Y-axis mapping curves are displayed/edited transposed
+    -- so input is vertical and output is horizontal.
+    transpose_y_curve = DEFAULT_TRANSPOSE_Y_CURVE,
   }
 end
 

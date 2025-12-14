@@ -26,6 +26,9 @@ local default_help_open = false
 
 local mouse_down = false
 
+-- Per-project option (set each frame from config)
+local transpose_y_curve = true
+
 -- Coordinate helpers: normalized (0-1) <-> screen space
 local function get_window_dimensions()
     local win_x, win_y = ImGui.GetWindowPos(_ctx)
@@ -97,8 +100,29 @@ local function sorted_curve_points(points)
     return ordered
 end
 
+-- Curve coordinate mapping
+-- Stored curve points are always { x = input, y = output } in [0,1].
+-- For Y-axis mappings, input is vertical and output is horizontal on screen, so we transpose for display/edit.
+local function curve_to_display_point(axis, pt)
+    if axis == 'y' and transpose_y_curve then
+        return { x = pt.y, y = pt.x }
+    end
+    return { x = pt.x, y = pt.y }
+end
+
+local function display_to_curve_point(axis, display_pt)
+    if axis == 'y' and transpose_y_curve then
+        return { x = display_pt.y, y = display_pt.x }
+    end
+    return { x = display_pt.x, y = display_pt.y }
+end
+
+local function curve_point_to_screen(win, axis, pt)
+    return norm_to_screen(win, curve_to_display_point(axis, pt))
+end
+
 -- Curve helpers
-local function toggle_editing_mapping(m)
+local function toggle_editing_mapping(axis, m)
     local was_editing = m and m.is_editing
 
     -- Sweep editing flags so only one mapping is marked editing
@@ -109,17 +133,18 @@ local function toggle_editing_mapping(m)
     if m then
         -- toggle off if clicking the same mapping that was already editing
         m.is_editing = not was_editing
+        m.axis = axis
     end
 end
 
-local function handle_point_hover_and_delete(editing_curve, win, hover_radius)
+local function handle_point_hover_and_delete(editing_curve, win, axis, hover_radius)
     local needs_curve_save = false
 
     hover_radius = hover_radius or 6
 
     for i, pt in ipairs(editing_curve or {}) do
         local is_endpoint = (i == 1 or i == #editing_curve)
-        local px, py = norm_to_screen(win, pt)
+        local px, py = curve_point_to_screen(win, axis, pt)
 
         local radius = hover_radius
 
@@ -145,7 +170,7 @@ local function handle_point_hover_and_delete(editing_curve, win, hover_radius)
     return needs_curve_save
 end
 
-local function handle_point_drag(editing_curve, win)
+local function handle_point_drag(editing_curve, win, axis)
     if not dragging_point_index then return false end
 
     local pt = editing_curve[dragging_point_index]
@@ -159,11 +184,14 @@ local function handle_point_drag(editing_curve, win)
 
     local old_x, old_y = pt.x, pt.y
 
-    if is_endpoint then -- x-clamping for endpoints
-        pt.y = new_y
-    else -- full x/y for interior points
-        pt.x = new_x
-        pt.y = new_y
+    local curve_pt = display_to_curve_point(axis, { x = new_x, y = new_y })
+
+    if is_endpoint then
+        -- Endpoints lock input (pt.x), allow output (pt.y) to change.
+        pt.y = curve_pt.y
+    else
+        pt.x = curve_pt.x
+        pt.y = curve_pt.y
     end
 
     if pt.x ~= old_x or pt.y ~= old_y then
@@ -173,7 +201,7 @@ local function handle_point_drag(editing_curve, win)
     return dragging_point_dirty
 end
 
-local function render_curve(draw_list, m, win)
+local function render_curve(draw_list, m, win, axis)
     if not m.use_curve or not m.curve_points or #m.curve_points < 2 then return end
 
     local vis = visibility_flags(m.curve_visibility)
@@ -198,14 +226,14 @@ local function render_curve(draw_list, m, win)
 
         if (is_editing or vis.segments) and i < #ordered_points then
             local p2 = ordered_points[i + 1]
-            local x2, y2 = norm_to_screen(win, p2)
-            local x1, y1 = norm_to_screen(win, pt)
+            local x2, y2 = curve_point_to_screen(win, axis, p2)
+            local x1, y1 = curve_point_to_screen(win, axis, pt)
 
             ImGui.DrawList_AddLine(draw_list, x1, y1, x2, y2, line_color, line_thickness)
         end
 
         if is_editing or vis.points then
-            local px, py = norm_to_screen(win, pt)
+            local px, py = curve_point_to_screen(win, axis, pt)
 
             -- Always draw the filled point using per-mapping radius/color (to be customizable later)
             ImGui.DrawList_AddCircleFilled(draw_list, px, py, point_radius, point_color)
@@ -221,17 +249,19 @@ end
 
 local function render_curves(draw_list, win)
     local top_curve = nil
+    local top_curve_axis = nil
 
-    mappings.with_mappings(function(m)
+    mappings.with_mappings(function(m, axis)
         if m.is_editing then
             top_curve = m
+            top_curve_axis = axis
         else
-            render_curve(draw_list, m, win)
+            render_curve(draw_list, m, win, axis)
         end
     end)
 
     if top_curve then
-        render_curve(draw_list, top_curve, win)
+        render_curve(draw_list, top_curve, win, top_curve_axis)
     end
 end
 
@@ -243,25 +273,28 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
         return false
     end
 
+    local axis = editing_mapping.axis or 'x'
+
     local editing_curve = editing_mapping.curve_points or {}
 
     local point_radius = editing_mapping.curve_point_radius or 4
     local hover_radius = math.max(6, point_radius + 3)
 
-    local needs_curve_save = handle_point_hover_and_delete(editing_curve, win, hover_radius)
+    local needs_curve_save = handle_point_hover_and_delete(editing_curve, win, axis, hover_radius)
 
     -- Add new point on right-click if not dragging existing point
     if not dragging_point_index
         and is_mouse_in_bounds
         and ImGui.IsMouseClicked(_ctx, RIGHT_BTN)
         and ImGui.GetKeyMods(_ctx) == 0 then
-        table.insert(editing_curve, { x = mse_norm_x, y = mse_norm_y })
+        local curve_pt = display_to_curve_point(axis, { x = mse_norm_x, y = mse_norm_y })
+        table.insert(editing_curve, curve_pt)
         sort_curve(editing_curve)
         needs_curve_save = true
     end
 
     if dragging_point_index and ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Drag existing point (in-memory only)
-        handle_point_drag(editing_curve, win)
+        handle_point_drag(editing_curve, win, axis)
     elseif dragging_point_index and not ImGui.IsMouseDown(_ctx, RIGHT_BTN) then -- Release drag (commit)
         if dragging_point_dirty then
             local was_endpoint = (dragging_point_index == 1 or dragging_point_index == #editing_curve)
@@ -277,13 +310,16 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
     return needs_curve_save
 end
 
-local function marker_position(input_norm, value_norm, win)
+local function marker_position(axis, input_norm, value_norm, win)
+    if axis == 'y' and transpose_y_curve then
+        return norm_to_screen(win, make_point(value_norm, input_norm))
+    end
     return norm_to_screen(win, make_point(input_norm, value_norm))
 end
 
-local function draw_mapping_marker(draw_list, m, input_norm, win, options)
+local function draw_mapping_marker(draw_list, m, axis, input_norm, win, options)
     if not (m and m.current_value) or m.bypass then return end
-    local marker_x, marker_y = marker_position(input_norm, m.current_value, win)
+    local marker_x, marker_y = marker_position(axis, input_norm, m.current_value, win)
     local color = m.curve_color or options.cursor_color
     local radius = m.curve_point_radius or 4
     ImGui.DrawList_AddCircleFilled(draw_list, marker_x, marker_y, radius, color)
@@ -462,7 +498,7 @@ local function render_xy_pad(frame)
                         mappings.with_mappings(function(m, axis)
                             local axis_norm = axis == 'x' and mse_norm_x or mse_norm_y
                             evaluate_mapping_and_set(m, axis_norm)
-                            draw_mapping_marker(draw_list, m, axis_norm, win, options)
+                            draw_mapping_marker(draw_list, m, axis, axis_norm, win, options)
                         end)
                     else
                         mouse_down = false
@@ -487,6 +523,8 @@ local function render_heading(text)
 end
 
 local function render_mapping_group(axis, m)
+    m.axis = axis
+
     ImGui.BeginGroup(_ctx)
     Trap(function()
         local needs_save = false
@@ -550,7 +588,7 @@ local function render_mapping_group(axis, m)
             local is_focused = m.is_editing
             local edit_label = is_focused and 'Stop editing' or 'Edit curve'
             if ImGui.Button(_ctx, edit_label) then
-                toggle_editing_mapping(m)
+                toggle_editing_mapping(axis, m)
             end
 
             local vis_flags = visibility_flags(m.curve_visibility)
@@ -794,6 +832,22 @@ local function render_cursor_options(options)
     return needs_save
 end
 
+local function render_curve_options(options)
+    render_heading('Curve Options')
+
+    local needs_save = false
+    local imgui_result
+
+    local transpose = options.transpose_y_curve ~= false
+    imgui_result, transpose = ImGui.Checkbox(_ctx, 'Transpose Y curve', transpose)
+    if imgui_result then
+        options.transpose_y_curve = transpose
+        needs_save = true
+    end
+
+    return needs_save
+end
+
 local function render_options(frame)
     if not options_open then
         return
@@ -818,7 +872,8 @@ local function render_options(frame)
             for _, renderer in ipairs {
                 render_pad_options,
                 render_grid_options,
-                render_cursor_options
+                render_cursor_options,
+                render_curve_options,
             } do
                 if renderer(options) then
                     needs_save = true
@@ -864,6 +919,8 @@ mappings.on_add_mapping(function()
 end)
 
 local function render(options)
+    transpose_y_curve = options.transpose_y_curve ~= false
+
     xy_menu_bar()
 
     local frame = create_frame_context(options)

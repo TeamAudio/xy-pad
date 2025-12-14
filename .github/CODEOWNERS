@@ -1,0 +1,11 @@
+# CODEOWNERS is enforced only if branch protection requires CODEOWNERS review.
+
+# GitHub Actions workflows are sensitive in public repos.
+/.github/workflows/ @TeamAudio/release-maintainers
+
+# Release automation scripts are also sensitive.
+/scripts/ @TeamAudio/release-maintainers
+
+# Release metadata and docs
+/docs/ @TeamAudio/release-maintainers
+/XY_Pad/releases/ @TeamAudio/release-maintainers

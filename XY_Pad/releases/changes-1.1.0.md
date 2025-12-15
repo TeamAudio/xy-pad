@@ -1,3 +1,0 @@
-- smoke test for release pipeline
-- other cool stuff
-- 🚀

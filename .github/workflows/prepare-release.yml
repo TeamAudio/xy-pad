@@ -41,6 +41,9 @@ jobs:
 
           BRANCH="release-prep/v${VERSION}-${GITHUB_RUN_ID}"
 
+          BODY="$(printf 'Automated release prep.\n\n- Version: v%s\n- Bump level: %s\n- Notes: %s\n' \
+            "$VERSION" "$BUMP_LEVEL" "$CHANGES_FILE")"
+
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
@@ -61,9 +64,22 @@ jobs:
 
           gh label create release-prep --description "Automated release prep PR" --color "5319e7" --force
 
-          gh pr create \
-            --title "Release prep v${VERSION}" \
-            --body "Automated release prep.\n\n- Version: v${VERSION}\n- Bump level: ${BUMP_LEVEL}\n- Notes: ${CHANGES_FILE}" \
-            --base main \
-            --head "$BRANCH" \
-            --label release-prep
+          # NOTE: `gh pr create` can fail in some org configurations with:
+          # "pull request update failed: GraphQL: github-actions[bot] does not have permission to updatePullRequest"
+          # even though the PR is created successfully. Use REST endpoints for determinism.
+          PR_NUMBER=""
+          if gh pr view "$BRANCH" --json number --jq .number >/dev/null 2>&1; then
+            PR_NUMBER="$(gh pr view "$BRANCH" --json number --jq .number)"
+          else
+            PR_NUMBER="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f title="Release prep v${VERSION}" \
+              -f head="$BRANCH" \
+              -f base=main \
+              -f body="$BODY" \
+              --jq .number)"
+          fi
+
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            -f labels[]=release-prep >/dev/null
+
+          echo "Opened PR: https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}"

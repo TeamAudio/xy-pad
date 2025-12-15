@@ -52,6 +52,11 @@ jobs:
         with:
           ruby-version: '3.2'
 
+      - name: Install pandoc (for RTF conversion)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
       - name: Install reapack-index
         run: |
           gem install reapack-index
@@ -88,8 +93,10 @@ jobs:
           git commit -m "ReaPack: XY Pad ${TAG}"
 
           # Update index.xml and let the indexer create its own commit (matches existing reascripts history).
-          # Note: `--scan HEAD` is not portable across reapack-index versions; default scan mode is sufficient.
-          reapack-index
+          # Note: some reapack-index versions don't accept symbolic revs like `HEAD` for --scan.
+          # Use the concrete SHA of the commit we just created.
+          SCAN_SHA="$(git rev-parse HEAD)"
+          reapack-index --commit --scan "${SCAN_SHA}"
 
           git push origin "$BRANCH"
 

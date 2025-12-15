@@ -10,6 +10,10 @@ on:
         description: 'Tag to publish (vX.Y.Z)'
         required: true
         default: 'v0.0.0-test'
+      source_ref:
+        description: 'Ref to run from (branch/tag/SHA). Leave empty to use the tag.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -25,8 +29,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # For manual runs, ensure we operate on the tagged release contents.
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          # For manual runs, default to checking out the tag, but allow overriding to test fixes
+          # without moving an existing tag.
+          ref: ${{ github.event.inputs.source_ref || github.event.inputs.tag || github.ref }}
 
       - name: Checkout reascripts
         uses: actions/checkout@v4

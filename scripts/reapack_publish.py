@@ -48,10 +48,12 @@ def _run(command: list[str], *, cwd: Path) -> None:
 def _parse_provides(reapack_file: Path) -> list[ProvidesEntry]:
     """Parse the `--@provides` block from a ReaPack metapackage file.
 
-    Supported line forms within the provides block:
-    - `[opts] path` or `path`: provides a single file path (options are ignored here)
-    - `source > target`: provides a mapping
-    - URLs are detected (http/https) and are not currently handled by sync automation
+        Supported line forms within the provides block:
+        - `[opts] path` or `path`: provides a single file path (options are ignored here). Paths may
+            contain spaces.
+        - `source > target`: provides a mapping (source/target may contain spaces)
+        - `path <url_template>`: URL templates are detected (http/https/file) and are not currently
+            handled by sync automation
 
     Parsing stops when the next `--@...` directive is encountered.
     """
@@ -87,22 +89,25 @@ def _parse_provides(reapack_file: Path) -> list[ProvidesEntry]:
             if end != -1:
                 body = body[end + 1 :].strip()
 
-        # Drop any leading whitespace after the comment prefix.
+        # Drop any leading/trailing whitespace after the comment prefix.
         body = body.strip()
 
-        # Split mapping.
+        has_url = bool(re.search(r"\b(?:https?|file)://", body))
+
+        # Split mapping. IMPORTANT: paths may contain spaces; do not tokenize on whitespace.
         if ">" in body:
             left, right = body.split(">", 1)
-            source = left.strip().split()[0]
-            target = right.strip().split()[0]
+            source = left.strip()
+            target = right.strip()
+        elif has_url:
+            # ReaPack supports: "<path> <url_template>"; keep the full path portion.
+            parts = re.split(r"\s+(?=(?:https?|file)://)", body, maxsplit=1)
+            source = parts[0].strip()
+            target = source
         else:
-            parts = body.split()
-            if not parts:
-                continue
-            source = parts[0]
-            target = parts[0]
+            source = body
+            target = body
 
-        has_url = "http://" in body or "https://" in body
         entries.append(ProvidesEntry(source=source, target=target, has_url=has_url))
 
     return entries

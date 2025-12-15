@@ -45,6 +45,9 @@ jobs:
 
           if [ -n "${TAG_PUSH_TOKEN:-}" ]; then
             # Push with a one-off auth header (avoids putting the token in the remote URL).
+            # actions/checkout may configure an auth extraheader; remove it to avoid sending two
+            # Authorization headers (GitHub rejects that with HTTP 400).
+            git config --local --unset-all http.https://github.com/.extraheader || true
             AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${TAG_PUSH_TOKEN}" | base64 | tr -d '\n')"
             git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin "$TAG"
           else

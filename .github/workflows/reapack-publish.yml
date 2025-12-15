@@ -87,9 +87,9 @@ jobs:
 
           git commit -m "ReaPack: XY Pad ${TAG}"
 
-          # Update index.xml based on the new commit we just created.
-          # (By default, reapack-index scans commits; running it before committing may produce no changes.)
-          reapack-index --scan HEAD
+          # Update index.xml and let the indexer create its own commit (matches existing reascripts history).
+          # Note: `--scan HEAD` is not portable across reapack-index versions; default scan mode is sufficient.
+          reapack-index
 
           git push origin "$BRANCH"
 

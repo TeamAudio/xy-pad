@@ -15,13 +15,11 @@
 --@link https://techaud.io
 --@link https://github.com/TeamAudio
 --@link https://discord.gg/fCnkP9PhTQ
---@version 1.1.0
+--@version 1.0.0
 --@category FX
 --@author Tech Audio
 --@changelog
---  - smoke test for release pipeline
---  - other cool stuff
---  - 🚀
+--  - Initial release
 --@provides
 --  [nomain] .
 --  [main] XY_Pad/TA_XY Pad.lua

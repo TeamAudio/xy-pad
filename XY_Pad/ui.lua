@@ -8,11 +8,13 @@ local config = require 'config'
 local Fonts = require 'fonts'
 local help = require 'help'
 local training = require 'training'
-local theme = require 'theme'
 local Trap = require 'trap'
 
 local IMGUI_CONTEXT_NAME = 'XY Pad'
 local STORAGE_SECTION = 'XYPad.General'
+
+local DEFAULT_MAPPINGS_WINDOW_WIDTH = 1300
+local DEFAULT_MAPPINGS_WINDOW_HEIGHT = 600
 
 local _ctx = ImGui.CreateContext(IMGUI_CONTEXT_NAME)
 Fonts:init(_ctx, STORAGE_SECTION)
@@ -164,82 +166,145 @@ local function render_heading(text)
     end, Trap)
 end
 
-local function render_mapping_group(m)
-    ImGui.BeginGroup(_ctx)
-    Trap(function()
-        local needs_save = false
-        Fonts.wrap(_ctx, Fonts.main, function()
+local function render_parameter_table_row(param_entry)
+    local needs_save = false
 
-            local highlight = theme.COLORS.medium_gray_opaque
-            ImGui.PushStyleColor(_ctx, ImGui.Col_Header, highlight)
-            ImGui.PushStyleColor(_ctx, ImGui.Col_HeaderHovered, highlight)
-            ImGui.PushStyleColor(_ctx, ImGui.Col_HeaderActive, highlight)
-            Trap(function()
-                if ImGui.Selectable(_ctx, m.mapping_name, m.selected) then
-                    m.selected = not m.selected
-                end
-            end)
-            ImGui.PopStyleColor(_ctx, 3)
+    local axis = type(param_entry.mappings.x) == 'table' and 'x' or type(param_entry.mappings.y) == 'table' and 'y' or nil
 
-            local call_result
+    if not axis then return end
 
-            ImGui.BeginGroup(_ctx)
-            Trap(function()
-                call_result, m.max = ImGui.SliderDouble(_ctx, 'Max', m.max, 0, 1, '%.2f')
-                if call_result then needs_save = true end
+    local m = param_entry.mappings[axis]
 
-                call_result, m.min = ImGui.SliderDouble(_ctx, 'Min', m.min, 0, 1, '%.2f')
-                if call_result then needs_save = true end
+    ImGui.TableNextRow(_ctx)
 
-                if m.max < m.min then
-                    m.max, m.min = m.min, m.max
-                end
-            end)
-            ImGui.EndGroup(_ctx)
+    -- column 0: tree leaf
+    ImGui.TableSetColumnIndex(_ctx, 0)
+    ImGui.PushID(_ctx, param_entry.param_number)
 
-            ImGui.SameLine(_ctx)
-
-            call_result, m.invert = ImGui.Checkbox(_ctx, 'Invert', m.invert)
-            if call_result then needs_save = true end
-
-            ImGui.SameLine(_ctx)
-            call_result, m.bypass = ImGui.Checkbox(_ctx, 'Bypass', m.bypass)
-            if call_result then needs_save = true end
-        end, Trap)
-
-        if needs_save then
-            mappings.save_mappings()
-        end
-    end)
-    ImGui.EndGroup(_ctx)
-end
-
-local function render_mapping_table(title, ms)
-    render_heading(title)
-
-    if #ms == 0 then
-        Fonts.wrap(_ctx, Fonts.big, function()
-            ImGui.Text(_ctx, 'No mappings')
-        end, Trap)
-        ImGui.Spacing(_ctx)
-        ImGui.Spacing(_ctx)
+    if not ImGui.TreeNodeEx(_ctx, param_entry.param_number, param_entry.name, ImGui.TreeNodeFlags_Leaf | ImGui.TreeNodeFlags_NoTreePushOnOpen | ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen) then
         return
     end
 
-    for i, m in ipairs(ms) do
-        ImGui.PushID(_ctx, ("%s-mapping-%d"):format(title, i))
-        Trap(function()
-            render_mapping_group(m)
-            ImGui.Spacing(_ctx)
-            ImGui.Spacing(_ctx)
+    -- column 1: Axis radios
+    ImGui.TableSetColumnIndex(_ctx, 1)
+    if ImGui.RadioButton(_ctx, "X", axis == 'x') then
+        mappings.remove_mapping(m)
+        mappings.add_mapping('x', m.track_guid, m.fx_guid, m.param_number, m)
+        needs_save = true
+    end
+    ImGui.SameLine(_ctx)
+    if ImGui.RadioButton(_ctx, "Y", axis == 'y') then
+        mappings.remove_mapping(m)
+        mappings.add_mapping('y', m.track_guid, m.fx_guid, m.param_number, m)
+        needs_save = true
+    end
 
-            if i < #ms then
-                ImGui.Separator(_ctx)
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
+    local call_result
+
+    -- column 2: Min/Max
+    ImGui.TableSetColumnIndex(_ctx, 2)
+    local avail_x, _avail_y = ImGui.GetContentRegionAvail(_ctx)
+
+    local input_x = avail_x / 2 - 5
+    ImGui.PushItemWidth(_ctx, input_x)
+    call_result, m.min = ImGui.SliderDouble(_ctx, '##Min', m.min, 0, 1, '%.2f')
+    if call_result then needs_save = true end
+
+    ImGui.SameLine(_ctx)
+
+    call_result, m.max = ImGui.SliderDouble(_ctx, '##Max', m.max, 0, 1, '%.2f')
+    if call_result then needs_save = true end
+    ImGui.PopItemWidth(_ctx)
+
+    if m.max < m.min then
+        m.max, m.min = m.min, m.max
+        needs_save = true
+    end
+
+    -- column 3: Invert
+    ImGui.TableSetColumnIndex(_ctx, 3)
+    call_result, m.invert = ImGui.Checkbox(_ctx, '##Invert', m.invert)
+    if call_result then needs_save = true end
+
+    -- column 4: Bypass
+    ImGui.TableSetColumnIndex(_ctx, 4)
+    call_result, m.bypass = ImGui.Checkbox(_ctx, '##Bypass', m.bypass)
+    if call_result then needs_save = true end
+
+    if needs_save then
+        mappings.save_mappings()
+    end
+
+    -- column 5: Remove button
+    ImGui.TableSetColumnIndex(_ctx, 5)
+    if ImGui.Button(_ctx, "Remove") then
+        mappings.remove_mapping(m)
+    end
+
+    ImGui.PopID(_ctx)
+end
+
+local function render_fx_table_row(fx_entry)
+    ImGui.TableNextRow(_ctx)
+    ImGui.TableSetColumnIndex(_ctx, 0)
+
+    local fx_open = ImGui.TreeNodeEx(_ctx, fx_entry.guid, fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+    if fx_open then
+        Trap(function()
+            for _, param_entry in ipairs(fx_entry.params or {}) do
+                render_parameter_table_row(param_entry)
             end
         end)
-        ImGui.PopID(_ctx)
+        ImGui.TreePop(_ctx)
+    end
+end
+
+local function render_track_table_row(track_entry)
+    ImGui.TableNextRow(_ctx)
+    ImGui.TableSetColumnIndex(_ctx, 0)
+
+    Trap(function()
+        local track_open = ImGui.TreeNodeEx(_ctx, track_entry.guid, track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+
+        if track_open then
+            Trap(function()
+                -- FX level
+                for _, fx_entry in ipairs(track_entry.fx or {}) do
+                    render_fx_table_row(fx_entry)
+                end
+            end)
+            ImGui.TreePop(_ctx) -- track
+        end
+    end)
+end
+
+local function render_mapping_tree_table(ms_table)
+    local table_flags = ImGui.TableFlags_Borders
+        | ImGui.TableFlags_NoSavedSettings
+        | ImGui.TableFlags_RowBg
+        | ImGui.TableFlags_Resizable
+        | ImGui.TableFlags_ScrollY
+    if ImGui.BeginTable(_ctx, "mappings-table", 6, table_flags) then
+        Trap(function()
+            -- Tree column: stretch wide for names
+            ImGui.TableSetupColumn(_ctx, "", ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, 3.0)
+            -- Axis radios: compact fixed width
+            ImGui.TableSetupColumn(_ctx, "Axis", ImGui.TableColumnFlags_WidthFixed, 110)
+            -- Min/Max: stretch with moderate weight
+            ImGui.TableSetupColumn(_ctx, "Min/Max", ImGui.TableColumnFlags_WidthStretch, 2.0)
+            -- Booleans: compact fixed widths
+            ImGui.TableSetupColumn(_ctx, "Invert", ImGui.TableColumnFlags_WidthFixed, 70)
+            ImGui.TableSetupColumn(_ctx, "Bypass", ImGui.TableColumnFlags_WidthFixed, 70)
+            -- Remove button: compact fixed width
+            ImGui.TableSetupColumn(_ctx, "Remove", ImGui.TableColumnFlags_WidthFixed, 90)
+            ImGui.TableHeadersRow(_ctx)
+
+            -- Track level
+            for _, track_entry in ipairs(ms_table.tracks or {}) do
+                render_track_table_row(track_entry)
+            end
+        end)
+        ImGui.EndTable(_ctx)
     end
 end
 
@@ -250,34 +315,24 @@ local function render_mapping()
 
     local parameter_window_flags
         = ImGui.WindowFlags_NoDocking
-        | ImGui.WindowFlags_AlwaysAutoResize
+        | ImGui.WindowFlags_NoSavedSettings
         | ImGui.WindowFlags_NoCollapse
 
+    ImGui.SetNextWindowSize(_ctx, DEFAULT_MAPPINGS_WINDOW_WIDTH, DEFAULT_MAPPINGS_WINDOW_HEIGHT, ImGui.Cond_FirstUseEver)
     local visible, open = ImGui.Begin(_ctx, 'Mappings', true, parameter_window_flags)
+
     if visible then
         Trap(function()
+            mappings.refresh_if_project_changed()
+
             if not open then
                 mappings_open = false
             end
 
             Fonts.wrap(_ctx, Fonts.main, function()
-                local should_clear = ImGui.Button(_ctx, "Remove Selection")
-                    or ImGui.IsKeyPressed(_ctx, ImGui.Key_Delete)
-
-                if should_clear then
-                    mappings.remove_selected()
-                    ImGui.SetItemDefaultFocus(_ctx)
-                end
-
                 local ms = mappings.get_mappings()
 
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
-                render_mapping_table('X Axis', ms.x)
-
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
-                render_mapping_table('Y Axis', ms.y)
+                render_mapping_tree_table(ms.ms_table)
             end, Trap)
         end)
         ImGui.End(_ctx)

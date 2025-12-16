@@ -10,6 +10,7 @@ local DEFAULT_MAX = 1.0
 local DEFAULT_MIN = 0.0
 local DEFAULT_INVERT = false
 local DEFAULT_BYPASS = false
+local PROJECT_REFRESH_MIN_INTERVAL = 0.25 -- seconds
 
 -- Builds a map of project tracks and their FX chains
 -- Returns a table with the following methods:
@@ -82,12 +83,19 @@ local function on_add_mapping(f)
     _on_add_mapping = f
 end
 
-local function empty_mappings() return {}, {} end
+local function empty_mappings() return {}, {}, {} end
 
-local xs, ys = empty_mappings()
+local xs, ys, ms_table = empty_mappings()
+local last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+local last_project_refresh_time = reaper.time_precise()
+
+local function update_project_update_state()
+    last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+    last_project_refresh_time = reaper.time_precise()
+end
 
 local function get_mappings()
-    return { x = xs, y = ys }
+    return { x = xs, y = ys, ms_table = ms_table }
 end
 
 -- Converts mappings to a dehydrated format for persistence
@@ -168,19 +176,164 @@ local function validated(mappings)
   return validated_mappings
 end
 
+-- Build a deterministic hierarchy Track->FX->Param with both lookups and sorted arrays
+local function rebuild_ms_table(xs, ys)
+    local ms_table = { tracks = {}, by_track = {} }
+
+    local function sorted_values(map, cmp)
+        local arr = {}
+
+        for _, v in pairs(map) do
+            table.insert(arr, v)
+        end
+
+        table.sort(arr, cmp)
+
+        return arr
+    end
+
+    local function ensure_track(m)
+        local track_entry = ms_table.by_track[m.track_guid]
+
+        if not track_entry then
+            track_entry = {
+                guid = m.track_guid,
+                name = m.track_name,
+                track_number = m.track_number,
+                fx_map = {}
+            }
+            ms_table.by_track[m.track_guid] = track_entry
+            table.insert(ms_table.tracks, track_entry)
+        end
+
+        return track_entry
+    end
+
+    local function ensure_fx(track_entry, m)
+        local fx_entry = track_entry.fx_map[m.fx_guid]
+
+        if not fx_entry then
+            fx_entry = {
+                guid = m.fx_guid,
+                name = m.fx_name,
+                fx_number = m.fx_number,
+                params_map = {}
+            }
+            track_entry.fx_map[m.fx_guid] = fx_entry
+        end
+
+        return fx_entry
+    end
+
+    local function ensure_param(fx_entry, m)
+        local param_entry = fx_entry.params_map[m.param_number]
+
+        if not param_entry then
+            param_entry = {
+                param_number = m.param_number,
+                name = m.param_name,
+                mappings = {}
+            }
+            fx_entry.params_map[m.param_number] = param_entry
+        end
+
+        return param_entry
+    end
+
+    local function insert_mapping(m, axis)
+        local track_entry = ensure_track(m)
+        local fx_entry = ensure_fx(track_entry, m)
+        local param_entry = ensure_param(fx_entry, m)
+
+        param_entry.mappings[axis] = m
+    end
+
+    for _, m in ipairs(xs) do
+        insert_mapping(m, 'x')
+    end
+
+    for _, m in ipairs(ys) do
+        insert_mapping(m, 'y')
+    end
+
+    for _, track_entry in ipairs(ms_table.tracks) do
+        track_entry.fx = sorted_values(track_entry.fx_map, function(a, b)
+            local a_name = (a.name or ""):lower()
+            local b_name = (b.name or ""):lower()
+
+            if a_name ~= b_name then return a_name < b_name end
+
+            if a.fx_number and b.fx_number and a.fx_number ~= b.fx_number then
+                return a.fx_number < b.fx_number
+            end
+
+            return (a.guid or "") < (b.guid or "")
+        end)
+
+        for _, fx_entry in ipairs(track_entry.fx) do
+            fx_entry.params = sorted_values(fx_entry.params_map, function(a, b)
+                if a.param_number ~= b.param_number then
+                    return a.param_number < b.param_number
+                end
+
+                local a_name = (a.name or ""):lower()
+                local b_name = (b.name or ""):lower()
+
+                return a_name < b_name
+            end)
+        end
+    end
+
+    table.sort(ms_table.tracks, function(a, b)
+        if a.track_number and b.track_number and a.track_number ~= b.track_number then
+            return a.track_number < b.track_number
+        end
+
+        local a_name = (a.name or ""):lower()
+        local b_name = (b.name or ""):lower()
+
+        if a_name ~= b_name then return a_name < b_name end
+
+        return (a.guid or "") < (b.guid or "")
+    end)
+
+    return ms_table
+end
+
 local function reload_mappings()
-  xs, ys = empty_mappings()
+    update_project_update_state()
 
-  local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
+    xs, ys, ms_table = empty_mappings()
 
-  if fetched_extstate == 1 then
-      local mappings = json.decode(state)
+    local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
 
-      if mappings and type(mappings) == 'table' then
-          if mappings.xs then xs = validated(mappings.xs) end
-          if mappings.ys then ys = validated(mappings.ys) end
-      end
-  end
+    if fetched_extstate == 1 then
+        local mappings = json.decode(state)
+
+        if mappings and type(mappings) == 'table' then
+            if mappings.xs then xs = validated(mappings.xs) end
+            if mappings.ys then ys = validated(mappings.ys) end
+        end
+
+        ms_table = rebuild_ms_table(xs, ys)
+    end
+end
+
+local function refresh_if_project_changed()
+    local current = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+
+    if current ~= last_project_state_change then
+        local now = reaper.time_precise()
+
+        if now - last_project_refresh_time >= PROJECT_REFRESH_MIN_INTERVAL then
+            last_project_state_change = current
+            last_project_refresh_time = now
+            reload_mappings()
+            return true
+        end
+    end
+
+    return false
 end
 
 -- Checks if a mapping already exists in the mappings table
@@ -216,11 +369,14 @@ local function save_mappings()
     else
         reaper.SetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY, m_json)
         reaper.MarkProjectDirty(CURRENT_PROJECT)
+        ms_table = rebuild_ms_table(xs, ys)
+        update_project_update_state()
     end
 end
 
-local function add_mapping(axis, track_guid, fx_guid, param_number)
+local function add_mapping(axis, track_guid, fx_guid, param_number, config)
     local mappings = axis == 'x' and xs or ys
+    config = config or {}
 
     local m = {
         axis = axis,
@@ -232,6 +388,12 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
     if exists(m) then
         log('Mapping already exists')
         return
+    end
+
+    for k, v in pairs(config) do
+        if k ~= 'axis' then
+            m[k] = v
+        end
     end
 
     if not mapping_validator().is_valid(m) then
@@ -246,21 +408,27 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
     _on_add_mapping(m)
 end
 
-local function remove_selected_in(ms)
+local function remove_mapping(mapping)
     local filtered = {}
 
-    for _, m in ipairs(ms) do
-        if not m.selected then
+    for _, m in ipairs(xs) do
+        if mapping ~= m then
             table.insert(filtered, m)
         end
     end
 
-    return filtered
-end
+    xs = filtered
 
-local function remove_selected()
-    xs = remove_selected_in(xs)
-    ys = remove_selected_in(ys)
+    filtered = {}
+
+    for _, m in ipairs(ys) do
+        if mapping ~= m then
+            table.insert(filtered, m)
+        end
+    end
+
+    ys = filtered
+
     save_mappings()
 end
 
@@ -320,12 +488,13 @@ end
 
 return {
     reload_mappings = reload_mappings,
+    refresh_if_project_changed = refresh_if_project_changed,
     get_mappings = get_mappings,
     save_mappings = save_mappings,
     add_mapping = add_mapping,
     on_add_mapping = on_add_mapping,
     mapping_from_last_touched = mapping_from_last_touched,
-    remove_selected = remove_selected,
+    remove_mapping = remove_mapping,
     set_params = set_params,
     is_empty = is_empty
 }

@@ -176,8 +176,6 @@ local function dehydrate(mappings)
             track_guid = m.track_guid,
             fx_guid = m.fx_guid,
             param_number = m.param_number,
-            max = m.max,
-            min = m.min,
             invert = m.invert,
             bypass = m.bypass,
             use_curve = m.use_curve,
@@ -226,6 +224,22 @@ local function hydrate(mapping, validator)
         use_curve = mapping.use_curve
     end
 
+    -- Legacy min/max bounds predate curves and used to scale the output in
+    -- set_param_value. Fold them into the curve points instead, so old projects
+    -- keep their range and the bounds become visible and editable as the curve
+    -- itself. Migrated mappings no longer carry min/max; the next save drops
+    -- the fields.
+    local curve_points = normalize_curve_points(mapping.curve_points)
+    local legacy_min = tonumber(mapping.min) or DEFAULT_MIN
+    local legacy_max = tonumber(mapping.max) or DEFAULT_MAX
+    if legacy_min ~= DEFAULT_MIN or legacy_max ~= DEFAULT_MAX then
+        for _, pt in ipairs(curve_points) do
+            local y = legacy_min + pt.y * (legacy_max - legacy_min)
+            if y < 0 then y = 0 elseif y > 1 then y = 1 end
+            pt.y = y
+        end
+    end
+
     return {
         track = track,
         track_guid = track_guid,
@@ -237,13 +251,11 @@ local function hydrate(mapping, validator)
         param_number = param_number,
         param_name = param_name,
         mapping_name = mapping_name,
-        max = mapping.max or DEFAULT_MAX,
-        min = mapping.min or DEFAULT_MIN,
         invert = mapping.invert or DEFAULT_INVERT,
         bypass = mapping.bypass or DEFAULT_BYPASS,
         use_curve = use_curve,
         curve_visibility = normalize_curve_visibility(mapping.curve_visibility or default_curve_visibility()),
-        curve_points = normalize_curve_points(mapping.curve_points),
+        curve_points = curve_points,
         curve_color = mapping.curve_color or DEFAULT_CURVE_COLOR,
         curve_thickness = mapping.curve_thickness or DEFAULT_CURVE_THICKNESS,
         curve_point_radius = mapping.curve_point_radius or DEFAULT_CURVE_POINT_RADIUS,
@@ -475,7 +487,7 @@ end
 
 -- Takes a single mapping object instead of all mappings on axis
 local function set_param_value(mapping, value)
-    local adjusted_value = mapping.min + value * (mapping.max - mapping.min)
+    local adjusted_value = value
 
     if mapping.invert then
         adjusted_value = 1.0 - adjusted_value

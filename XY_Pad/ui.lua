@@ -577,25 +577,6 @@ local function render_mapping_group(axis, m)
 
             local call_result
 
-            -- Deprecated: Min/Max bounds are now determined by editable curves
-            --[[
-            ImGui.BeginGroup(_ctx)
-            Trap(function()
-                call_result, m.max = ImGui.SliderDouble(_ctx, 'Max', m.max, 0, 1, '%.2f')
-                if call_result then needs_save = true end
-
-                call_result, m.min = ImGui.SliderDouble(_ctx, 'Min', m.min, 0, 1, '%.2f')
-                if call_result then needs_save = true end
-
-                if m.max < m.min then
-                    m.max, m.min = m.min, m.max
-                end
-            end)
-            ImGui.EndGroup(_ctx)
-            
-            ImGui.SameLine(_ctx)
-            ]]
-
             call_result, m.invert = ImGui.Checkbox(_ctx, 'Invert', m.invert)
             if call_result then needs_save = true end
 

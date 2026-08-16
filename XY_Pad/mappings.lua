@@ -277,6 +277,28 @@ local function validated(mappings)
   return validated_mappings
 end
 
+-- Persisted-blob schema version. Blobs written before versioning carry no
+-- schema_version field and are treated as version 0. migrations[v] upgrades a
+-- decoded blob in place from version v to v+1; steps run in order at load.
+-- Version 1 is the first stamped format; 0 -> 1 has no structural change
+-- (legacy min/max bounds are folded into curve points in hydrate, which must
+-- handle unstamped data regardless).
+local MAPPINGS_SCHEMA_VERSION = 1
+local migrations = {}
+
+local function migrate(blob)
+    local version = tonumber(blob.schema_version) or 0
+
+    while version < MAPPINGS_SCHEMA_VERSION do
+        local step = migrations[version]
+        if step then step(blob) end
+        version = version + 1
+    end
+
+    blob.schema_version = version
+    return blob
+end
+
 local function reload_mappings()
   xs, ys = empty_mappings()
 
@@ -286,6 +308,7 @@ local function reload_mappings()
       local mappings = json.decode(state)
 
       if mappings and type(mappings) == 'table' then
+          mappings = migrate(mappings)
           if mappings.xs then xs = validated(mappings.xs) end
           if mappings.ys then ys = validated(mappings.ys) end
       end
@@ -314,6 +337,7 @@ local function exists(mapping)
 
 local function save_mappings()
     local mappings = {
+        schema_version = MAPPINGS_SCHEMA_VERSION,
         xs = dehydrate(xs),
         ys = dehydrate(ys)
     }

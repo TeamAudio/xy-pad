@@ -280,7 +280,7 @@ local function render_curves(draw_list, win)
     end
 end
 
-local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bounds)
+local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bounds, is_pad_hovered)
     local editing_mapping = mappings.find_mapping(function(m) return m.is_editing end)
     if not editing_mapping then
         dragging_point_index = nil
@@ -295,11 +295,18 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
     local point_radius = clamp_int(editing_mapping.curve_point_radius, 4, 2, 20)
     local hover_radius = math.max(6, point_radius + 3)
 
-    local needs_curve_save = handle_point_hover_and_delete(editing_curve, win, axis, hover_radius)
+    -- Only initiate point interactions (hover cursor, drag start, delete, add) while the
+    -- pad is the hovered window, so clicks meant for an overlapping window don't edit the
+    -- curve underneath. An already-active drag continues below regardless of hover.
+    local needs_curve_save = false
+    if is_pad_hovered then
+        needs_curve_save = handle_point_hover_and_delete(editing_curve, win, axis, hover_radius)
+    end
 
     -- Add new point on right-click if not dragging existing point
     if not dragging_point_index
         and is_mouse_in_bounds
+        and is_pad_hovered
         and ImGui.IsMouseClicked(_ctx, RIGHT_BTN)
         and ImGui.GetKeyMods(_ctx) == 0 then
         local curve_pt = display_to_curve_point(axis, { x = mse_norm_x, y = mse_norm_y })
@@ -491,19 +498,23 @@ local function render_xy_pad(frame)
 
                 render_curves(draw_list, win)
                 local is_mouse_in_bounds = mouse_in_bounds(mse_screen_x, mse_screen_y, win)
+                -- False when another window (Mappings, Options, ...) is on top of the pad
+                -- at the mouse position, unlike the purely geometric mouse_in_bounds.
+                local is_pad_hovered = ImGui.IsWindowHovered(_ctx)
 
-                if is_mouse_in_bounds then
+                if is_mouse_in_bounds and is_pad_hovered then
                     ImGui.SetMouseCursor(_ctx, 7)
                 end
 
                 needs_curve_save = process_curve_points(
                     win,
                     mse_norm_x, mse_norm_y,
-                    is_mouse_in_bounds
+                    is_mouse_in_bounds,
+                    is_pad_hovered
                 ) or needs_curve_save
 
                 if is_mouse_in_bounds then
-                    if ImGui.IsMouseDown(_ctx, 0) then
+                    if ImGui.IsMouseDown(_ctx, 0) and ImGui.IsWindowFocused(_ctx) then
                         if not mouse_down then
                             mouse_down = true
                         end

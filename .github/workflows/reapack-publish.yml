@@ -1,9 +1,8 @@
 name: Publish to ReaPack (PR to reascripts)
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -22,6 +21,8 @@ permissions:
 
 jobs:
   reapack-publish:
+    # Publishing the GitHub release is the ship-it gate; prereleases don't publish.
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
 
     steps:
@@ -31,7 +32,7 @@ jobs:
           fetch-depth: 0
           # For manual runs, default to checking out the tag, but allow overriding to test fixes
           # without moving an existing tag.
-          ref: ${{ github.event.inputs.source_ref || github.event.inputs.tag || github.ref }}
+          ref: ${{ github.event.inputs.source_ref || github.event.inputs.tag || github.event.release.tag_name }}
 
       - name: Checkout reascripts
         uses: actions/checkout@v4
@@ -72,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="${{ github.event.inputs.tag || github.event.release.tag_name }}"
           BRANCH="reapack/xy-pad/${TAG}-${GITHUB_RUN_ID}"
 
           pushd reascripts >/dev/null

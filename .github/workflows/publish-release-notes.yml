@@ -2,7 +2,10 @@ name: Publish GitHub Release Notes to website repo
 
 on:
   release:
-    types: [edited]
+    # published: the one-shot sync when a (draft) release goes live.
+    # edited: re-sync when notes are corrected after publishing; drafts are
+    # filtered out by the job condition below.
+    types: [published, edited]
   workflow_dispatch:
     inputs:
       project_id:
@@ -28,6 +31,9 @@ on:
 
 jobs:
   publish-release-notes:
+    # GitHub already filters draft releases out of created/edited triggers; the
+    # draft check is defense-in-depth. Prereleases are skipped deliberately.
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.draft && !github.event.release.prerelease) }}
     runs-on: ubuntu-latest
 
     steps:

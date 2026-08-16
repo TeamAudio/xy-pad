@@ -29,11 +29,6 @@ jobs:
 
       - name: Create tag (if missing)
         shell: bash
-        env:
-          # Optional: PAT used only to push the tag so that tag-based workflows (e.g. ReaPack publish)
-          # trigger normally. If not set, we fall back to GITHUB_TOKEN (which may not trigger other
-          # workflows when it creates events).
-          TAG_PUSH_TOKEN: ${{ secrets['TAG_PUSH_TOKEN'] }}
         run: |
           set -euo pipefail
           TAG="${{ steps.ver.outputs.tag }}"
@@ -41,20 +36,11 @@ jobs:
             echo "Tag already exists: $TAG"
             exit 0
           fi
+          # The tag pins the release commit but triggers nothing: downstream
+          # publishing (ReaPack, release notes) fires when the draft release
+          # created below is published by a human. GITHUB_TOKEN is fine here.
           git tag "$TAG"
-
-          if [ -n "${TAG_PUSH_TOKEN:-}" ]; then
-            # Push with a one-off auth header (avoids putting the token in the remote URL).
-            # actions/checkout may configure an auth extraheader; remove it to avoid sending two
-            # Authorization headers (GitHub rejects that with HTTP 400).
-            git config --local --unset-all http.https://github.com/.extraheader || true
-            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${TAG_PUSH_TOKEN}" | base64 | tr -d '\n')"
-            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin "$TAG"
-          else
-            echo "WARNING: TAG_PUSH_TOKEN is not set; pushing tag with GITHUB_TOKEN."
-            echo "WARNING: Tag pushes created by workflows using GITHUB_TOKEN may not trigger other workflows."
-            git push origin "$TAG"
-          fi
+          git push origin "$TAG"
 
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@v2

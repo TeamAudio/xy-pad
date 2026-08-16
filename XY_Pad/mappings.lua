@@ -367,6 +367,53 @@ local function remove_selected()
     save_mappings()
 end
 
+local function find_track_by_guid(track_guid)
+    for i = 0, reaper.CountTracks(CURRENT_PROJECT) - 1 do
+        local track = reaper.GetTrack(CURRENT_PROJECT, i)
+        if reaper.GetTrackGUID(track) == track_guid then
+            return track
+        end
+    end
+
+    return nil
+end
+
+-- The cached mapping.track pointer goes stale when its track is deleted (or
+-- deleted and restored via undo, which allocates a new MediaTrack). Validate it
+-- before use and re-resolve it from the persisted track GUID, so mappings
+-- self-heal instead of passing a dangling pointer to TrackFX_* calls.
+local function ensure_track(mapping)
+    if not mapping or not mapping.track_guid then
+        return false
+    end
+
+    if mapping.track and reaper.ValidatePtr2(CURRENT_PROJECT, mapping.track, 'MediaTrack*') then
+        return true
+    end
+
+    -- Re-scan only when the project has changed since the last failed attempt,
+    -- so a dead mapping doesn't cost a full track scan every frame.
+    local state_count = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+    if mapping._track_resolve_state == state_count then
+        return false
+    end
+    mapping._track_resolve_state = state_count
+
+    local track = find_track_by_guid(mapping.track_guid)
+    if track then
+        mapping.track = track
+        mapping._warned_missing_track = nil
+        return true
+    end
+
+    if not mapping._warned_missing_track then
+        mapping._warned_missing_track = true
+        log(('Track no longer found for mapping: %s'):format(mapping.mapping_name or '<unknown>'))
+    end
+
+    return false
+end
+
 local function fx_number_matches_guid(track, fx_number, fx_guid)
     if not track or fx_number == nil or not fx_guid then
         return false
@@ -400,7 +447,11 @@ local function find_fx_number_by_guid(track, fx_guid)
 end
 
 local function ensure_fx_number(mapping)
-    if not mapping or not mapping.track or not mapping.fx_guid then
+    if not mapping or not mapping.fx_guid then
+        return false
+    end
+
+    if not ensure_track(mapping) then
         return false
     end
 

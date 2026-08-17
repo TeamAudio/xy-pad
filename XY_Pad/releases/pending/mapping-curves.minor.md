@@ -1,0 +1,6 @@
+- Added editable response curves for every mapping: click 'Edit curve' on a mapping, then right-click the pad to add a point, drag points with the right button, and Alt + right-click to remove one (endpoints stay pinned to the pad edges; drag them vertically to set the output range)
+- Added per-mapping curve controls in the Mappings window: use/bypass the curve, visibility (segments and/or points), color, line thickness and point radius
+- Added a per-project option controlling whether Y-axis curves are transposed for editing
+- Retired the Min/Max sliders: existing projects migrate their bounds into the curve automatically, so mappings sound exactly the same and the range is now visible and editable as the curve itself
+- Fixed the pad responding to clicks aimed at overlapping windows (e.g. dragging a slider in the Mappings window no longer moves mapped parameters)
+- Fixed mappings breaking permanently when their track was deleted mid-session; deleting a track and undoing now recovers the mapping automatically

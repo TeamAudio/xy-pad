@@ -4,6 +4,7 @@
 XY Pad, by [Tech Audio](https://techaud.io/), is an interactive control script that can map and manipulate plugin parameters across an XY Pad.
 
 - [Prerequisites](#prerequisites)
+- [Installation](#installation)
 - [Main Scripts](#main-scripts)
 - [UI Layout](#ui-layout)
     - [XY Pad Window](#xy-pad-window)
@@ -15,7 +16,21 @@ XY Pad, by [Tech Audio](https://techaud.io/), is an interactive control script t
     - [Customizing Parameter Manipulation Power](#customizing-parameter-manipulation-power)
 
 ### Prerequisites
+- [ReaPack](https://reapack.com/), a package manager for REAPER
 - [ReaImGui API](https://github.com/cfillion/reaimgui) available via ReaPack
+
+<PageBreak />
+
+### Installation
+1. Install [ReaPack](https://reapack.com/) if you haven't already
+2. Open REAPER and go to `Extensions` > `ReaPack` > `Manage repositories...`
+3. Add the Tech Audio repository URL: `https://github.com/TeamAudio/reascripts/raw/main/index.xml`
+4. Go to `Extensions` > `ReaPack` > `Browse packages...`
+5. Search for `XY Pad` and select it from the list
+6. Click the `Install` button to install the script and its dependencies
+7. Once installed, you can find the script in the `Actions` list under `TA_XY Pad`
+
+<PageBreak />
 
 ### Main Scripts
 XY Pad consists of a main control script, and 3 component scripts:
@@ -28,23 +43,34 @@ XY Pad consists of a main control script, and 3 component scripts:
 - TA_XY Pad Full Reset.lua
     - Deletes all saved mappings and resets `TA_XY Pad.lua` to an initial state
 
+<PageBreak />
+
 ## UI Layout
 ### XY Pad Window
 This is where you control parameters you've mapped to the pad by clicking and dragging your cursor within the grid boundaries. Parameters mapped to the X axis will have their values determined based on a factor ranging between 0 on the left edge and 1 on the right. Parameters mapped to the Y axis work similarly, with 0 at the bottom edge and 1 at the top.
 
-![XY Pad Main Window](/Manuals/xy-pad/window_main.png)
-- Main menu items
-    - `Mappings`
-        - `Show/Hide Mappings` opens the `Mappings` window
-        - `New Mapping` submenu items to map plugin parameters to the X or Y axis
-    - `Show/Hide Options`
-        - Opens and closes the `Options` window to change the colors, grid setup, and other appearance settings of XY Pad
-    - `Show/Hide Help`
-        - Shows and hides the tutorial text that is shown on first startup
+![XY Pad Main Window](images/window_main.png)
+
+<PageBreak />
+
+### Main menu items
+
+- `Mappings`
+    - `Show/Hide Mappings` opens the `Mappings` window
+    - `New Mapping` submenu items to map plugin parameters to the X or Y axis
+- `Show/Hide Options`
+    - Opens and closes the `Options` window to change the colors, grid setup, and other appearance settings of XY Pad
+- `Show/Hide Help`
+    - Shows and hides the tutorial text that is shown on first startup
+
+![XY Pad Main with Mappings Menu Expanded](images/window_main_menubar.png)
+
+<PageBreak />
+
 ### Mappings Window
 This window lets you monitor which parameters are mapped, edit the range of the XY Pad, invert the controls, or bypass controls entirely.
 
-![XY Pad Mapping Window](/Manuals/xy-pad/window_mappings.png)
+![XY Pad Mapping Window](images/window_mappings.png)
 - Available mapping options
     - `Max/Min` Sliders
         - Changes the range of values that XY Pad sends to plugin parameters
@@ -52,10 +78,13 @@ This window lets you monitor which parameters are mapped, edit the range of the 
         - Inverts values from XY Pad, with respect to the `Max/Min` sliders
     - `Bypass`
         - Bypasses the selected plugin parameter from being affected by XY Pad
+
+<PageBreak />
+
 ### Options Window
 Here, you can change aesthetic properties of XY Pad. Number of gridlines, colors, just about everything!
 
-![XY Pad Options Window](/Manuals/xy-pad/window_options.png)
+![XY Pad Options Window](images/window_options.png)
 - Pad Options
     - Change the pad background color and the pad's lower-left corner label color
 - Grid Options
@@ -72,6 +101,8 @@ Here, you can change aesthetic properties of XY Pad. Number of gridlines, colors
         - Change the size of the circular cursor
     - `Cursor Stroke`
         - Change the thickness of the circular cursor
+
+<PageBreak />
 
 ## How to Use
 ### Mapping Parameters
@@ -90,10 +121,16 @@ If you'd prefer to do this from XY Pad directly, you can!
 You should see your mapped parameter appear in the Mappings window under the chosen axis.
 
 Both modes leverage REAPER's GetTouchedOrFocusedFX() ReaScript function to determine the last parameter that you interacted with. This can be a somewhat quirky experience in practice, for example if you've already mapped a parameter and attempt to map it again. XY Pad will do its best in training mode to describe any situation preventing a mapping based on this value, displaying messages like "No tracks in project", "No FX in project" or "Touch an unmapped parameter to map it to the pad."
+
+<PageBreak />
+
 ### Manipulate Parameters
 - On the main `XY Pad` window, values (0, 0) is the bottom left corner, and (1, 1) is the top right corner
 - Clicking and dragging your mouse across the Pad will move the plugin parameters between the **minimum-most** value and **maximum-most** value *for that particular plugin* by default
     - You can customize these values in the next section
+
+<PageBreak />
+
 ### Customizing Parameter Manipulation Power
 - `Max` and `Min` sliders limit the values that XY Pad imparts on the plugin's parameter from a scale of `0.00` to `1.00`
     - You can `CTRL + CLICK` (`CMD + CLICK` on MacOS) on the slider to input your own value

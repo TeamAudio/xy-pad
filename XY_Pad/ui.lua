@@ -18,6 +18,11 @@ local STORAGE_SECTION = 'XYPad.General'
 local DEFAULT_MAPPINGS_WINDOW_WIDTH = 1300
 local DEFAULT_MAPPINGS_WINDOW_HEIGHT = 600
 
+-- Shared value ranges: the mappings-window inputs and the pad renderer clamp
+-- against the same numbers.
+local CURVE_THICKNESS = { default = 2, min = 1, max = 6 }
+local CURVE_POINT_RADIUS = { default = 4, min = 2, max = 20 }
+
 local _ctx = ImGui.CreateContext(IMGUI_CONTEXT_NAME)
 Fonts:init(_ctx, STORAGE_SECTION)
 
@@ -206,9 +211,9 @@ local function render_curve(draw_list, m, win, axis)
     local vis = m.curve_visibility
     local is_editing = m.is_editing
 
-    local point_radius = clamp_int(m.curve_point_radius, 4, 2, 20)
+    local point_radius = clamp_int(m.curve_point_radius, CURVE_POINT_RADIUS.default, CURVE_POINT_RADIUS.min, CURVE_POINT_RADIUS.max)
     local point_color = m.curve_color
-    local line_thickness = clamp_int(m.curve_thickness, 2, 1, 6)
+    local line_thickness = clamp_int(m.curve_thickness, CURVE_THICKNESS.default, CURVE_THICKNESS.min, CURVE_THICKNESS.max)
     local line_color = m.curve_color
 
     -- During an active drag, render using an x-sorted view so segments always connect left-to-right
@@ -276,7 +281,7 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
 
     local editing_curve = editing_mapping.curve_points or {}
 
-    local point_radius = clamp_int(editing_mapping.curve_point_radius, 4, 2, 20)
+    local point_radius = clamp_int(editing_mapping.curve_point_radius, CURVE_POINT_RADIUS.default, CURVE_POINT_RADIUS.min, CURVE_POINT_RADIUS.max)
     local hover_radius = math.max(6, point_radius + 3)
 
     -- Only initiate point interactions (hover cursor, drag start, delete, add) while the
@@ -552,21 +557,39 @@ end
 
 local INT_FIELD_WIDTH = 44
 
-local function render_centered_int_input(label, value, default, min_val, max_val)
+local function render_centered_int_input(label, value, range)
     local total_width = int_input_total_width(INT_FIELD_WIDTH)
     center_next_item(total_width)
     ImGui.SetNextItemWidth(_ctx, total_width)
-    local clamped = clamp_int(value, default, min_val, max_val)
+    local clamped = clamp_int(value, range.default, range.min, range.max)
     local changed, new_value = ImGui.InputInt(_ctx, label, clamped)
     if changed then
-        return true, clamp_int(new_value, default, min_val, max_val)
+        return true, clamp_int(new_value, range.default, range.min, range.max)
     end
-    return false, clamped
+    -- Self-heal out-of-range persisted values: report the normalization as a
+    -- change so it gets written back and saved.
+    return clamped ~= value, clamped
 end
 
+local AXES = { 'x', 'y' }
+
+-- Headers marked centered sit over cells whose content is also centered;
+-- left-aligned columns (tree, Curve, Visibility) keep left headers.
+local MAPPING_TABLE_COLUMNS = {
+    { name = "",           flags = ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, size = 3.0 },
+    { name = "Axis",       flags = ImGui.TableColumnFlags_WidthFixed, size = 110, center = true },
+    { name = "Curve",      flags = ImGui.TableColumnFlags_WidthFixed, size = 170 },
+    { name = "Visibility", flags = ImGui.TableColumnFlags_WidthFixed, size = 120 },
+    { name = "Thickness",  flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
+    { name = "Radius",     flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
+    { name = "Invert",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
+    { name = "Bypass",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
+    { name = "Remove",     flags = ImGui.TableColumnFlags_WidthFixed, size = 90,  center = true },
+}
+
 local function render_parameter_table_row(param_entry)
-    local axis = type(param_entry.mappings.x) == 'table' and 'x'
-        or type(param_entry.mappings.y) == 'table' and 'y'
+    local axis = param_entry.mappings.x and 'x'
+        or param_entry.mappings.y and 'y'
         or nil
 
     if not axis then return end
@@ -588,18 +611,16 @@ local function render_parameter_table_row(param_entry)
             return
         end
 
-        -- column 1: Axis radios (reassign preserves curve settings via config)
+        -- column 1: Axis radios (in-place reassign keeps curve settings and
+        -- edit state; the mapping object's identity is preserved)
         ImGui.TableSetColumnIndex(_ctx, 1)
         local frame_h = ImGui.GetFrameHeight(_ctx)
         center_next_item(2 * (frame_h + ImGui.CalcTextSize(_ctx, "X")) + 24)
-        if ImGui.RadioButton(_ctx, "X", axis == 'x') and axis ~= 'x' then
-            mappings.remove_mapping(m)
-            mappings.add_mapping('x', m.track_guid, m.fx_guid, m.param_number, m)
-        end
-        ImGui.SameLine(_ctx)
-        if ImGui.RadioButton(_ctx, "Y", axis == 'y') and axis ~= 'y' then
-            mappings.remove_mapping(m)
-            mappings.add_mapping('y', m.track_guid, m.fx_guid, m.param_number, m)
+        for i, target in ipairs(AXES) do
+            if i > 1 then ImGui.SameLine(_ctx) end
+            if ImGui.RadioButton(_ctx, target:upper(), axis == target) and axis ~= target then
+                mappings.reassign_axis(m, target)
+            end
         end
 
         local call_result
@@ -645,7 +666,7 @@ local function render_parameter_table_row(param_entry)
         -- column 4: thickness
         ImGui.TableSetColumnIndex(_ctx, 4)
         local new_thickness
-        call_result, new_thickness = render_centered_int_input('##curve_thickness', m.curve_thickness, 2, 1, 6)
+        call_result, new_thickness = render_centered_int_input('##curve_thickness', m.curve_thickness, CURVE_THICKNESS)
         if call_result then
             m.curve_thickness = new_thickness
             needs_save = true
@@ -654,7 +675,7 @@ local function render_parameter_table_row(param_entry)
         -- column 5: point radius
         ImGui.TableSetColumnIndex(_ctx, 5)
         local new_radius
-        call_result, new_radius = render_centered_int_input('##curve_point_radius', m.curve_point_radius, 4, 2, 20)
+        call_result, new_radius = render_centered_int_input('##curve_point_radius', m.curve_point_radius, CURVE_POINT_RADIUS)
         if call_result then
             m.curve_point_radius = new_radius
             needs_save = true
@@ -725,28 +746,14 @@ local function render_mapping_tree_table(ms_table)
         | ImGui.TableFlags_RowBg
         | ImGui.TableFlags_Resizable
         | ImGui.TableFlags_ScrollY
-    -- Headers marked centered sit over cells whose content is also centered;
-    -- left-aligned columns (tree, Curve, Visibility) keep left headers.
-    local columns = {
-        { name = "",           flags = ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, size = 3.0 },
-        { name = "Axis",       flags = ImGui.TableColumnFlags_WidthFixed, size = 110, center = true },
-        { name = "Curve",      flags = ImGui.TableColumnFlags_WidthFixed, size = 170 },
-        { name = "Visibility", flags = ImGui.TableColumnFlags_WidthFixed, size = 120 },
-        { name = "Thickness",  flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
-        { name = "Radius",     flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
-        { name = "Invert",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
-        { name = "Bypass",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
-        { name = "Remove",     flags = ImGui.TableColumnFlags_WidthFixed, size = 90,  center = true },
-    }
-
-    if ImGui.BeginTable(_ctx, "mappings-table", #columns, table_flags) then
+    if ImGui.BeginTable(_ctx, "mappings-table", #MAPPING_TABLE_COLUMNS, table_flags) then
         Trap(function()
-            for _, col in ipairs(columns) do
+            for _, col in ipairs(MAPPING_TABLE_COLUMNS) do
                 ImGui.TableSetupColumn(_ctx, col.name, col.flags, col.size)
             end
 
             ImGui.TableNextRow(_ctx, ImGui.TableRowFlags_Headers)
-            for i, col in ipairs(columns) do
+            for i, col in ipairs(MAPPING_TABLE_COLUMNS) do
                 ImGui.TableSetColumnIndex(_ctx, i - 1)
                 if col.name ~= "" then
                     if col.center then
@@ -786,9 +793,15 @@ local function render_mapping()
             end
 
             Fonts.wrap(_ctx, Fonts.main, function()
-                local ms = mappings.get_mappings()
+                if mappings.is_empty() then
+                    Fonts.wrap(_ctx, Fonts.big, function()
+                        ImGui.Text(_ctx, 'No mappings')
+                    end, Trap)
+                else
+                    local ms = mappings.get_mappings()
 
-                render_mapping_tree_table(ms.ms_table)
+                    render_mapping_tree_table(ms.ms_table)
+                end
             end, Trap)
         end)
         ImGui.End(_ctx)

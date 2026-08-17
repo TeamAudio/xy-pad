@@ -1,0 +1,5 @@
+- Reorganized the Mappings window into a tree grouped by track, FX and parameter, with each mapping's controls laid out in resizable columns
+- Added axis reassignment: switch a mapping between the X and Y axes in place, keeping its curve and settings
+- Replaced selection-based removal with a per-mapping Remove button
+- Compacted the curve controls: color is now a single swatch that opens the full picker, and thickness and point radius are stepper inputs
+- The Mappings window now refreshes automatically when the project changes (tracks or FX added, removed or renamed) and no longer restores a stale saved window size

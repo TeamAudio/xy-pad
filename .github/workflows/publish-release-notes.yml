@@ -1,8 +1,13 @@
-name: Publish GitHub Release Notes to website repo
+name: Publish Release to website repo
 
 on:
   release:
-    types: [edited]
+    # released: the one-shot sync when a release goes live ('released' rather
+    # than 'published' so a prerelease promoted to a full release also fires,
+    # without the double-run both types together would cause on normal publish).
+    # edited: re-sync when notes are corrected after publishing; drafts are
+    # filtered out by the job condition below.
+    types: [released, edited]
   workflow_dispatch:
     inputs:
       project_id:
@@ -25,9 +30,29 @@ on:
         description: 'Release body content'
         required: true
         default: 'Release body content goes here'
+      source_ref:
+        description: 'Product repo ref to read the manual from (default: the tag). Set to main or release/x.y to publish a docs hotfix without cutting a release.'
+        required: false
+        default: ''
+      manual_only:
+        description: 'Publish only the manual (docs hotfix mode); skips release notes and blog post.'
+        required: false
+        default: 'false'
+      publish_manual:
+        description: 'Set to false to skip the manual step (eg. wiring tests with placeholder tags).'
+        required: false
+        default: 'true'
+
+# All pushes/PRs happen in other repos via the service token; this workflow
+# needs nothing from its own repo token.
+permissions:
+  contents: read
 
 jobs:
   publish-release-notes:
+    # GitHub already filters draft releases out of created/edited triggers; the
+    # draft check is defense-in-depth. Prereleases are skipped deliberately.
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.draft && !github.event.release.prerelease) }}
     runs-on: ubuntu-latest
 
     steps:
@@ -35,9 +60,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TeamAudio/techaudio-web
+          # Pinned to main: a selectable ref would let any dispatcher run
+          # arbitrary action code with the service token.
           ref: main
           fetch-depth: 0
           token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
+          # This checkout only resolves the action; it never pushes.
+          persist-credentials: false
           path: techaudio-web
 
       - name: Call publish-release action
@@ -48,5 +77,8 @@ jobs:
           project_repository: ${{ github.event.inputs.project_repository || github.repository }}
           version_tag: ${{ github.event.inputs.version_tag || github.event.release.tag_name }}
           release_body: ${{ github.event.inputs.release_body || github.event.release.body }}
+          source_ref: ${{ github.event.inputs.source_ref || '' }}
+          manual_only: ${{ github.event.inputs.manual_only || 'false' }}
+          publish_manual: ${{ github.event.inputs.publish_manual || 'true' }}
           service_token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
           latest_release_url: ${{ vars.LATEST_RELEASE_URL || '' }}

@@ -8,13 +8,20 @@ local config = require 'config'
 local Fonts = require 'fonts'
 local help = require 'help'
 local training = require 'training'
-local theme = require 'theme'
 local Trap = require 'trap'
 
 local RIGHT_BTN = ImGui.MouseButton_Right or 1
 
 local IMGUI_CONTEXT_NAME = 'XY Pad'
 local STORAGE_SECTION = 'XYPad.General'
+
+local DEFAULT_MAPPINGS_WINDOW_WIDTH = 1300
+local DEFAULT_MAPPINGS_WINDOW_HEIGHT = 600
+
+-- Shared value ranges: the mappings-window inputs and the pad renderer clamp
+-- against the same numbers.
+local CURVE_THICKNESS = { default = 2, min = 1, max = 6 }
+local CURVE_POINT_RADIUS = { default = 4, min = 2, max = 20 }
 
 local _ctx = ImGui.CreateContext(IMGUI_CONTEXT_NAME)
 Fonts:init(_ctx, STORAGE_SECTION)
@@ -54,31 +61,13 @@ local function screen_to_norm(win, screen_point)
     return nx, ny
 end
 
-local function visibility_flags(vis)
-    if type(vis) == 'table' then
-        return {
-            segments = vis.segments ~= false,
-            points = vis.points ~= false,
-        }
-    end
-
-    if vis == 'segments' then
-        return { segments = true, points = false }
-    elseif vis == 'points' then
-        return { segments = false, points = true }
-    elseif vis == 'none' then
-        return { segments = false, points = false }
-    end
-
-    return { segments = true, points = true }
-end
-
+-- curve_visibility is guaranteed normalized ({segments=, points=}) by hydrate;
+-- read it directly instead of re-normalizing per frame.
 local function visibility_label(flags)
-    local parts = {}
-    if flags.segments then table.insert(parts, 'segments') end
-    if flags.points then table.insert(parts, 'points') end
-    if #parts == 0 then return 'hidden' end
-    return table.concat(parts, ', ')
+    if flags.segments and flags.points then return 'both' end
+    if flags.segments then return 'segments' end
+    if flags.points then return 'points' end
+    return 'hidden'
 end
 
 local function clamp_int(value, default, min_val, max_val)
@@ -219,12 +208,12 @@ end
 local function render_curve(draw_list, m, win, axis)
     if not m.use_curve or not m.curve_points or #m.curve_points < 2 then return end
 
-    local vis = visibility_flags(m.curve_visibility)
+    local vis = m.curve_visibility
     local is_editing = m.is_editing
 
-    local point_radius = clamp_int(m.curve_point_radius, 4, 2, 20)
+    local point_radius = clamp_int(m.curve_point_radius, CURVE_POINT_RADIUS.default, CURVE_POINT_RADIUS.min, CURVE_POINT_RADIUS.max)
     local point_color = m.curve_color
-    local line_thickness = clamp_int(m.curve_thickness, 2, 1, 6)
+    local line_thickness = clamp_int(m.curve_thickness, CURVE_THICKNESS.default, CURVE_THICKNESS.min, CURVE_THICKNESS.max)
     local line_color = m.curve_color
 
     -- During an active drag, render using an x-sorted view so segments always connect left-to-right
@@ -292,7 +281,7 @@ local function process_curve_points(win, mse_norm_x, mse_norm_y, is_mouse_in_bou
 
     local editing_curve = editing_mapping.curve_points or {}
 
-    local point_radius = clamp_int(editing_mapping.curve_point_radius, 4, 2, 20)
+    local point_radius = clamp_int(editing_mapping.curve_point_radius, CURVE_POINT_RADIUS.default, CURVE_POINT_RADIUS.min, CURVE_POINT_RADIUS.max)
     local hover_radius = math.max(6, point_radius + 3)
 
     -- Only initiate point interactions (hover cursor, drag start, delete, add) while the
@@ -548,135 +537,237 @@ local function render_heading(text)
     end, Trap)
 end
 
-local function render_mapping_group(axis, m)
-    m.axis = axis
+-- Center the next item horizontally within the current table cell.
+local function center_next_item(item_width)
+    local avail = ImGui.GetContentRegionAvail(_ctx)
+    local indent = (avail - item_width) / 2
+    if indent > 0 then
+        ImGui.SetCursorPosX(_ctx, ImGui.GetCursorPosX(_ctx) + indent)
+    end
+end
 
-    ImGui.BeginGroup(_ctx)
+-- Total width of an InputInt with its -/+ step buttons, given the desired
+-- value-field width. Note SetNextItemWidth sets the TOTAL widget width and
+-- InputInt carves the two buttons out of it, so we size and center by this.
+local function int_input_total_width(field_width)
+    local frame_h = ImGui.GetFrameHeight(_ctx)
+    local spacing_x = ImGui.GetStyleVar(_ctx, ImGui.StyleVar_ItemInnerSpacing)
+    return field_width + 2 * (frame_h + spacing_x)
+end
+
+local INT_FIELD_WIDTH = 44
+
+local function render_centered_int_input(label, value, range)
+    local total_width = int_input_total_width(INT_FIELD_WIDTH)
+    center_next_item(total_width)
+    ImGui.SetNextItemWidth(_ctx, total_width)
+    local clamped = clamp_int(value, range.default, range.min, range.max)
+    local changed, new_value = ImGui.InputInt(_ctx, label, clamped)
+    if changed then
+        return true, clamp_int(new_value, range.default, range.min, range.max)
+    end
+    -- Self-heal out-of-range persisted values: report the normalization as a
+    -- change so it gets written back and saved.
+    return clamped ~= value, clamped
+end
+
+local AXES = { 'x', 'y' }
+
+-- Headers marked centered sit over cells whose content is also centered;
+-- left-aligned columns (tree, Curve, Visibility) keep left headers.
+local MAPPING_TABLE_COLUMNS = {
+    { name = "",           flags = ImGui.TableColumnFlags_NoHide | ImGui.TableColumnFlags_WidthStretch, size = 3.0 },
+    { name = "Axis",       flags = ImGui.TableColumnFlags_WidthFixed, size = 110, center = true },
+    { name = "Curve",      flags = ImGui.TableColumnFlags_WidthFixed, size = 170 },
+    { name = "Visibility", flags = ImGui.TableColumnFlags_WidthFixed, size = 120 },
+    { name = "Thickness",  flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
+    { name = "Radius",     flags = ImGui.TableColumnFlags_WidthFixed, size = 120, center = true },
+    { name = "Invert",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
+    { name = "Bypass",     flags = ImGui.TableColumnFlags_WidthFixed, size = 70,  center = true },
+    { name = "Remove",     flags = ImGui.TableColumnFlags_WidthFixed, size = 90,  center = true },
+}
+
+local function render_parameter_table_row(param_entry)
+    local axis = param_entry.mappings.x and 'x'
+        or param_entry.mappings.y and 'y'
+        or nil
+
+    if not axis then return end
+
+    local m = param_entry.mappings[axis]
+    local needs_save = false
+
+    ImGui.TableNextRow(_ctx)
+
+    -- column 0: tree leaf
+    ImGui.TableSetColumnIndex(_ctx, 0)
+    ImGui.PushID(_ctx, param_entry.param_number)
     Trap(function()
-        local needs_save = false
-        Fonts.wrap(_ctx, Fonts.main, function()
+        local leaf_flags = ImGui.TreeNodeFlags_Leaf
+            | ImGui.TreeNodeFlags_NoTreePushOnOpen
+            | ImGui.TreeNodeFlags_SpanAvailWidth
+            | ImGui.TreeNodeFlags_DefaultOpen
+        if not ImGui.TreeNodeEx(_ctx, param_entry.param_number, param_entry.name, leaf_flags) then
+            return
+        end
 
-            local highlight = theme.COLORS.medium_gray_opaque
-            ImGui.PushStyleColor(_ctx, ImGui.Col_Header, highlight)
-            ImGui.PushStyleColor(_ctx, ImGui.Col_HeaderHovered, highlight)
-            ImGui.PushStyleColor(_ctx, ImGui.Col_HeaderActive, highlight)
+        -- column 1: Axis radios (in-place reassign keeps curve settings and
+        -- edit state; the mapping object's identity is preserved)
+        ImGui.TableSetColumnIndex(_ctx, 1)
+        local frame_h = ImGui.GetFrameHeight(_ctx)
+        center_next_item(2 * (frame_h + ImGui.CalcTextSize(_ctx, "X")) + 24)
+        for i, target in ipairs(AXES) do
+            if i > 1 then ImGui.SameLine(_ctx) end
+            if ImGui.RadioButton(_ctx, target:upper(), axis == target) and axis ~= target then
+                mappings.reassign_axis(m, target)
+            end
+        end
+
+        local call_result
+
+        -- column 2: use curve + edit + color swatch
+        ImGui.TableSetColumnIndex(_ctx, 2)
+        call_result, m.use_curve = ImGui.Checkbox(_ctx, '##use_curve', m.use_curve ~= false)
+        if call_result then
+            m.use_curve = (m.use_curve ~= false)
+            needs_save = true
+        end
+
+        ImGui.SameLine(_ctx)
+        local edit_label = m.is_editing and 'Stop editing' or 'Edit curve'
+        if ImGui.Button(_ctx, edit_label) then
+            toggle_editing_mapping(axis, m)
+        end
+
+        ImGui.SameLine(_ctx)
+        local color_flags = ImGui.ColorEditFlags_NoInputs | ImGui.ColorEditFlags_NoLabel
+        local new_color
+        call_result, new_color = ImGui.ColorEdit4(_ctx, '##curve_color', m.curve_color, color_flags)
+        if call_result then
+            m.curve_color = new_color
+            needs_save = true
+        end
+
+        -- column 3: visibility
+        ImGui.TableSetColumnIndex(_ctx, 3)
+        ImGui.SetNextItemWidth(_ctx, -1)
+        local vis = m.curve_visibility
+        if ImGui.BeginCombo(_ctx, '##curve_visibility', visibility_label(vis)) then
             Trap(function()
-                if ImGui.Selectable(_ctx, m.mapping_name, m.selected) then
-                    local shift_held = ImGui.IsKeyDown(_ctx, ImGui.Key_LeftShift) or ImGui.IsKeyDown(_ctx, ImGui.Key_RightShift)
+                call_result, vis.segments = ImGui.Checkbox(_ctx, 'segments', vis.segments)
+                if call_result then needs_save = true end
 
-                    if not shift_held then
-                        local all_mappings = mappings.get_mappings()
-                        for _, mm in ipairs(all_mappings.x) do mm.selected = false end
-                        for _, mm in ipairs(all_mappings.y) do mm.selected = false end
-                    end
-
-                    m.selected = not m.selected
-                end
+                call_result, vis.points = ImGui.Checkbox(_ctx, 'points', vis.points)
+                if call_result then needs_save = true end
             end)
-            ImGui.PopStyleColor(_ctx, 3)
+            ImGui.EndCombo(_ctx)
+        end
 
-            local call_result
+        -- column 4: thickness
+        ImGui.TableSetColumnIndex(_ctx, 4)
+        local new_thickness
+        call_result, new_thickness = render_centered_int_input('##curve_thickness', m.curve_thickness, CURVE_THICKNESS)
+        if call_result then
+            m.curve_thickness = new_thickness
+            needs_save = true
+        end
 
-            call_result, m.invert = ImGui.Checkbox(_ctx, 'Invert', m.invert)
-            if call_result then needs_save = true end
+        -- column 5: point radius
+        ImGui.TableSetColumnIndex(_ctx, 5)
+        local new_radius
+        call_result, new_radius = render_centered_int_input('##curve_point_radius', m.curve_point_radius, CURVE_POINT_RADIUS)
+        if call_result then
+            m.curve_point_radius = new_radius
+            needs_save = true
+        end
 
-            ImGui.SameLine(_ctx)
-            call_result, m.bypass = ImGui.Checkbox(_ctx, 'Bypass', m.bypass)
-            if call_result then needs_save = true end
+        -- column 6: Invert
+        ImGui.TableSetColumnIndex(_ctx, 6)
+        center_next_item(frame_h)
+        call_result, m.invert = ImGui.Checkbox(_ctx, '##invert', m.invert)
+        if call_result then needs_save = true end
 
-            ImGui.SameLine(_ctx)
-            call_result, m.use_curve = ImGui.Checkbox(_ctx, 'Use curve', m.use_curve ~= false)
-            if call_result then
-                m.use_curve = (m.use_curve ~= false)
-                needs_save = true
-            end
-
-            ImGui.SameLine(_ctx)
-            local is_focused = m.is_editing
-            local edit_label = is_focused and 'Stop editing' or 'Edit curve'
-            if ImGui.Button(_ctx, edit_label) then
-                toggle_editing_mapping(axis, m)
-            end
-
-            local vis_flags = visibility_flags(m.curve_visibility)
-            local preview = visibility_label(vis_flags)
-            if ImGui.BeginCombo(_ctx, 'Curve visibility', preview) then
-                call_result, vis_flags.segments = ImGui.Checkbox(_ctx, 'segments', vis_flags.segments)
-                if call_result then needs_save = true end
-
-                call_result, vis_flags.points = ImGui.Checkbox(_ctx, 'points', vis_flags.points)
-                if call_result then needs_save = true end
-                m.curve_visibility = {
-                    segments = vis_flags.segments,
-                    points = vis_flags.points,
-                }
-
-                ImGui.EndCombo(_ctx)
-            end
-
-            local new_color
-            call_result, new_color = ImGui.ColorEdit4(_ctx, 'Curve color', m.curve_color)
-            if call_result then
-                m.curve_color = new_color
-                needs_save = true
-            end
-
-            local thickness = clamp_int(m.curve_thickness, 2, 1, 6)
-            if m.curve_thickness ~= thickness then
-                m.curve_thickness = thickness
-                needs_save = true
-            end
-            call_result, thickness = ImGui.SliderInt(_ctx, 'Curve thickness', thickness, 1, 6, '%d')
-            if call_result then
-                m.curve_thickness = thickness
-                needs_save = true
-            end
-
-            local radius = clamp_int(m.curve_point_radius, 4, 2, 20)
-            if m.curve_point_radius ~= radius then
-                m.curve_point_radius = radius
-                needs_save = true
-            end
-            call_result, radius = ImGui.SliderInt(_ctx, 'Point radius', radius, 2, 20, '%d')
-            if call_result then
-                m.curve_point_radius = radius
-                needs_save = true
-            end
-        end, Trap)
+        -- column 7: Bypass
+        ImGui.TableSetColumnIndex(_ctx, 7)
+        center_next_item(frame_h)
+        call_result, m.bypass = ImGui.Checkbox(_ctx, '##bypass', m.bypass)
+        if call_result then needs_save = true end
 
         if needs_save then
             mappings.save_mappings()
         end
+
+        -- column 8: Remove button
+        ImGui.TableSetColumnIndex(_ctx, 8)
+        center_next_item(ImGui.CalcTextSize(_ctx, "Remove") + 16)
+        if ImGui.Button(_ctx, "Remove") then
+            mappings.remove_mapping(m)
+        end
     end)
-    ImGui.EndGroup(_ctx)
+    ImGui.PopID(_ctx)
 end
 
-local function render_mapping_table(title, ms, axis)
-    render_heading(title)
+local function render_fx_table_row(fx_entry)
+    ImGui.TableNextRow(_ctx)
+    ImGui.TableSetColumnIndex(_ctx, 0)
 
-    if #ms == 0 then
-        Fonts.wrap(_ctx, Fonts.big, function()
-            ImGui.Text(_ctx, 'No mappings')
-        end, Trap)
-        ImGui.Spacing(_ctx)
-        ImGui.Spacing(_ctx)
-        return
-    end
-
-    for i, m in ipairs(ms) do
-        ImGui.PushID(_ctx, ("%s-mapping-%d"):format(title, i))
+    local fx_open = ImGui.TreeNodeEx(_ctx, fx_entry.guid, fx_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+    if fx_open then
         Trap(function()
-            render_mapping_group(axis, m)
-            ImGui.Spacing(_ctx)
-            ImGui.Spacing(_ctx)
-
-            if i < #ms then
-                ImGui.Separator(_ctx)
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
+            for _, param_entry in ipairs(fx_entry.params or {}) do
+                render_parameter_table_row(param_entry)
             end
         end)
-        ImGui.PopID(_ctx)
+        ImGui.TreePop(_ctx)
+    end
+end
+
+local function render_track_table_row(track_entry)
+    ImGui.TableNextRow(_ctx)
+    ImGui.TableSetColumnIndex(_ctx, 0)
+
+    Trap(function()
+        local track_open = ImGui.TreeNodeEx(_ctx, track_entry.guid, track_entry.name, ImGui.TreeNodeFlags_SpanAvailWidth | ImGui.TreeNodeFlags_DefaultOpen)
+
+        if track_open then
+            Trap(function()
+                for _, fx_entry in ipairs(track_entry.fx or {}) do
+                    render_fx_table_row(fx_entry)
+                end
+            end)
+            ImGui.TreePop(_ctx)
+        end
+    end)
+end
+
+local function render_mapping_tree_table(ms_table)
+    local table_flags = ImGui.TableFlags_Borders
+        | ImGui.TableFlags_NoSavedSettings
+        | ImGui.TableFlags_RowBg
+        | ImGui.TableFlags_Resizable
+        | ImGui.TableFlags_ScrollY
+    if ImGui.BeginTable(_ctx, "mappings-table", #MAPPING_TABLE_COLUMNS, table_flags) then
+        Trap(function()
+            for _, col in ipairs(MAPPING_TABLE_COLUMNS) do
+                ImGui.TableSetupColumn(_ctx, col.name, col.flags, col.size)
+            end
+
+            ImGui.TableNextRow(_ctx, ImGui.TableRowFlags_Headers)
+            for i, col in ipairs(MAPPING_TABLE_COLUMNS) do
+                ImGui.TableSetColumnIndex(_ctx, i - 1)
+                if col.name ~= "" then
+                    if col.center then
+                        center_next_item(ImGui.CalcTextSize(_ctx, col.name))
+                    end
+                    ImGui.Text(_ctx, col.name)
+                end
+            end
+
+            for _, track_entry in ipairs(ms_table.tracks or {}) do
+                render_track_table_row(track_entry)
+            end
+        end)
+        ImGui.EndTable(_ctx)
     end
 end
 
@@ -687,10 +778,10 @@ local function render_mapping()
 
     local parameter_window_flags
         = ImGui.WindowFlags_NoDocking
+        | ImGui.WindowFlags_NoSavedSettings
         | ImGui.WindowFlags_NoCollapse
 
-    -- Give the window a reasonable default size; allow user resizing after.
-    ImGui.SetNextWindowSize(_ctx, 520, 700, ImGui.Cond_FirstUseEver)
+    ImGui.SetNextWindowSize(_ctx, DEFAULT_MAPPINGS_WINDOW_WIDTH, DEFAULT_MAPPINGS_WINDOW_HEIGHT, ImGui.Cond_FirstUseEver)
 
     local visible, open = ImGui.Begin(_ctx, 'Mappings', true, parameter_window_flags)
     if visible then
@@ -700,32 +791,15 @@ local function render_mapping()
             end
 
             Fonts.wrap(_ctx, Fonts.main, function()
-                local should_clear = ImGui.Button(_ctx, "Remove Selection")
-                    or ImGui.IsKeyPressed(_ctx, ImGui.Key_Delete)
+                if mappings.is_empty() then
+                    Fonts.wrap(_ctx, Fonts.big, function()
+                        ImGui.Text(_ctx, 'No mappings')
+                    end, Trap)
+                else
+                    local ms = mappings.get_mappings()
 
-                if should_clear then
-                    mappings.remove_selected()
-                    ImGui.SetItemDefaultFocus(_ctx)
+                    render_mapping_tree_table(ms.ms_table)
                 end
-
-                local ms = mappings.get_mappings()
-
-                ImGui.Spacing(_ctx)
-                ImGui.Spacing(_ctx)
-
-                local child_flags = ImGui.ChildFlags_FrameStyle
-                ImGui.BeginChild(_ctx, 'mappings-scroll', 0, 0, child_flags, 0)
-                Trap(function()
-                    render_mapping_table('X Axis', ms.x, 'x')
-
-                    ImGui.Spacing(_ctx)
-                    ImGui.Spacing(_ctx)
-                    render_mapping_table('Y Axis', ms.y, 'y')
-
-                    -- Bottom padding so the final mapping controls aren't clipped
-                    ImGui.Dummy(_ctx, 0, 24)
-                end)
-                ImGui.EndChild(_ctx)
             end, Trap)
         end)
         ImGui.End(_ctx)
@@ -973,6 +1047,13 @@ local function render(options)
 
     if ImGui.IsKeyPressed(_ctx, ImGui.Key_Y) then
         training.train('y', mappings)
+    end
+
+    -- Observe external project changes BEFORE the pad renders: a drag's own
+    -- param writes re-arm the change watermark, so a check that runs after
+    -- them would silently absorb any external change from the same frame.
+    if mappings_open then
+        mappings.refresh_if_project_changed()
     end
 
     if training.is_training() then

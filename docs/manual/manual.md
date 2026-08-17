@@ -70,22 +70,24 @@ Each mapping's response curve is drawn on the pad in the mapping's color, so you
 <PageBreak />
 
 ### Mappings Window
-This window lets you monitor which parameters are mapped, shape each mapping's response curve, invert the controls, or bypass controls entirely.
+Mappings are shown as a tree grouped by track, FX and parameter, with each mapped parameter's controls laid out in columns. The window refreshes automatically when the project changes (tracks or FX added, removed or renamed).
 
 ![XY Pad Mapping Window](images/window_mappings.png)
-- Available mapping options
+- Columns, per mapped parameter
+    - `Axis`
+        - Reassign the parameter to the X or Y axis in place; the mapping's curve and settings are preserved
+    - `Curve`
+        - Toggle whether the response curve is applied (its shape is kept while disabled), enter curve edit mode (see [Shaping Parameter Response with Curves](#shaping-parameter-response-with-curves)), and set the curve's color via the swatch
+    - `Visibility`
+        - Choose whether the curve's segments and/or points are drawn on the pad
+    - `Thickness`, `Radius`
+        - Line thickness and point radius for the curve on the pad
     - `Invert`
         - Inverts the value XY Pad sends, after the response curve is applied
     - `Bypass`
-        - Bypasses the selected plugin parameter from being affected by XY Pad
-    - `Use curve`
-        - Toggles whether the mapping's response curve is applied; the curve's shape is kept while disabled
-    - `Edit curve`
-        - Puts the mapping's curve into edit mode on the pad (see [Shaping Parameter Response with Curves](#shaping-parameter-response-with-curves))
-    - `Curve visibility`
-        - Choose whether the curve's segments and/or points are drawn on the pad
-    - `Curve color`, `Curve thickness`, `Point radius`
-        - Appearance of the curve on the pad, per mapping
+        - Bypasses the plugin parameter from being affected by XY Pad
+    - `Remove`
+        - Removes the mapping
 
 <PageBreak />
 

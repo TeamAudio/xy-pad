@@ -153,12 +153,23 @@ local function on_add_mapping(f)
     _on_add_mapping = f
 end
 
-local function empty_mappings() return {}, {} end
+local PROJECT_REFRESH_MIN_INTERVAL = 0.25 -- seconds
 
-local xs, ys = empty_mappings()
+local function empty_mappings() return {}, {}, { tracks = {} } end
+
+local xs, ys, ms_table = empty_mappings()
+local last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+local last_project_refresh_time = reaper.time_precise()
+
+-- Re-sync the project-change watermark, so our own saves (which bump the
+-- project state count) don't count as an external change and trigger a reload.
+local function update_project_update_state()
+    last_project_state_change = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+    last_project_refresh_time = reaper.time_precise()
+end
 
 local function get_mappings()
-    return { x = xs, y = ys }
+    return { x = xs, y = ys, ms_table = ms_table }
 end
 
 local function pick_curve_color(axis)
@@ -277,6 +288,142 @@ local function validated(mappings)
   return validated_mappings
 end
 
+-- Build a deterministic hierarchy Track->FX->Param with both lookups and sorted arrays
+local function rebuild_ms_table(xs, ys)
+    local ms_table = { tracks = {}, by_track = {} }
+
+    local function sorted_values(map, cmp)
+        local arr = {}
+
+        for _, v in pairs(map) do
+            table.insert(arr, v)
+        end
+
+        table.sort(arr, cmp)
+
+        return arr
+    end
+
+    -- (named _entry to avoid colliding with the module-level ensure_track,
+    -- which revalidates a mapping's cached MediaTrack pointer)
+    local function ensure_track_entry(m)
+        local track_entry = ms_table.by_track[m.track_guid]
+
+        if not track_entry then
+            track_entry = {
+                guid = m.track_guid,
+                name = m.track_name,
+                track_number = m.track_number,
+                fx_map = {}
+            }
+            ms_table.by_track[m.track_guid] = track_entry
+            table.insert(ms_table.tracks, track_entry)
+        end
+
+        return track_entry
+    end
+
+    local function ensure_fx(track_entry, m)
+        local fx_entry = track_entry.fx_map[m.fx_guid]
+
+        if not fx_entry then
+            fx_entry = {
+                guid = m.fx_guid,
+                name = m.fx_name,
+                fx_number = m.fx_number,
+                params_map = {}
+            }
+            track_entry.fx_map[m.fx_guid] = fx_entry
+        end
+
+        return fx_entry
+    end
+
+    local function ensure_param(fx_entry, m)
+        local param_entry = fx_entry.params_map[m.param_number]
+
+        if not param_entry then
+            param_entry = {
+                param_number = m.param_number,
+                name = m.param_name,
+                mappings = {}
+            }
+            fx_entry.params_map[m.param_number] = param_entry
+        end
+
+        return param_entry
+    end
+
+    local function insert_mapping(m, axis)
+        local track_entry = ensure_track_entry(m)
+        local fx_entry = ensure_fx(track_entry, m)
+        local param_entry = ensure_param(fx_entry, m)
+
+        param_entry.mappings[axis] = m
+    end
+
+    for _, m in ipairs(xs) do
+        insert_mapping(m, 'x')
+    end
+
+    for _, m in ipairs(ys) do
+        insert_mapping(m, 'y')
+    end
+
+    for _, track_entry in ipairs(ms_table.tracks) do
+        track_entry.fx = sorted_values(track_entry.fx_map, function(a, b)
+            local a_name = (a.name or ""):lower()
+            local b_name = (b.name or ""):lower()
+
+            if a_name ~= b_name then return a_name < b_name end
+
+            if a.fx_number and b.fx_number and a.fx_number ~= b.fx_number then
+                return a.fx_number < b.fx_number
+            end
+
+            return (a.guid or "") < (b.guid or "")
+        end)
+
+        for _, fx_entry in ipairs(track_entry.fx) do
+            fx_entry.params = sorted_values(fx_entry.params_map, function(a, b)
+                if a.param_number ~= b.param_number then
+                    return a.param_number < b.param_number
+                end
+
+                local a_name = (a.name or ""):lower()
+                local b_name = (b.name or ""):lower()
+
+                return a_name < b_name
+            end)
+        end
+    end
+
+    table.sort(ms_table.tracks, function(a, b)
+        if a.track_number and b.track_number and a.track_number ~= b.track_number then
+            return a.track_number < b.track_number
+        end
+
+        local a_name = (a.name or ""):lower()
+        local b_name = (b.name or ""):lower()
+
+        if a_name ~= b_name then return a_name < b_name end
+
+        return (a.guid or "") < (b.guid or "")
+    end)
+
+    -- The lookup maps only exist to build the sorted arrays; strip them so the
+    -- returned table has a single representation of the hierarchy.
+    for _, track_entry in ipairs(ms_table.tracks) do
+        for _, fx_entry in ipairs(track_entry.fx) do
+            fx_entry.params_map = nil
+        end
+        track_entry.fx_map = nil
+    end
+    ms_table.by_track = nil
+
+    return ms_table
+end
+
 -- Persisted-blob schema version. Blobs written before versioning carry no
 -- schema_version field and are treated as version 0. migrations[v] upgrades a
 -- decoded blob in place from version v to v+1; steps run in order at load.
@@ -299,8 +446,47 @@ local function migrate(blob)
     return blob
 end
 
+-- Identity of the mapping currently in curve-edit mode, so edit mode can
+-- survive a reload (hydrate builds fresh objects without transient state).
+local function find_editing_identity()
+    local function scan(ms, axis)
+        for _, m in ipairs(ms) do
+            if m.is_editing then
+                return {
+                    track_guid = m.track_guid,
+                    fx_guid = m.fx_guid,
+                    param_number = m.param_number,
+                    axis = axis,
+                }
+            end
+        end
+    end
+    return scan(xs, 'x') or scan(ys, 'y')
+end
+
+local function restore_editing_identity(editing)
+    if not editing then return end
+
+    local list = editing.axis == 'x' and xs or ys
+    for _, m in ipairs(list) do
+        if m.track_guid == editing.track_guid
+            and m.fx_guid == editing.fx_guid
+            and m.param_number == editing.param_number then
+            m.is_editing = true
+            -- hydrate doesn't carry axis; without it, curve editing falls back
+            -- to X-axis coordinates and mis-transposes edits on a Y mapping.
+            m.axis = editing.axis
+            return
+        end
+    end
+end
+
 local function reload_mappings()
-  xs, ys = empty_mappings()
+  update_project_update_state()
+
+  local editing = find_editing_identity()
+
+  xs, ys, ms_table = empty_mappings()
 
   local fetched_extstate, state = reaper.GetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY)
 
@@ -313,6 +499,28 @@ local function reload_mappings()
           if mappings.ys then ys = validated(mappings.ys) end
       end
   end
+
+  ms_table = rebuild_ms_table(xs, ys)
+
+  restore_editing_identity(editing)
+end
+
+-- Reload when something else changed the project (undo, track/FX edits,
+-- another script), rate-limited; our own saves and param writes are excluded
+-- via the watermark updates in save_mappings and set_param_value.
+local function refresh_if_project_changed()
+    local current = reaper.GetProjectStateChangeCount(CURRENT_PROJECT)
+
+    if current ~= last_project_state_change then
+        local now = reaper.time_precise()
+
+        if now - last_project_refresh_time >= PROJECT_REFRESH_MIN_INTERVAL then
+            reload_mappings()
+            return true
+        end
+    end
+
+    return false
 end
 
 -- Checks if a mapping already exists in the mappings table
@@ -349,6 +557,8 @@ local function save_mappings()
     else
         reaper.SetProjExtState(CURRENT_PROJECT, XYPAD_EXTSTATE_NAME, XYPAD_EXTSTATE_KEY, m_json)
         reaper.MarkProjectDirty(CURRENT_PROJECT)
+        ms_table = rebuild_ms_table(xs, ys)
+        update_project_update_state()
     end
 end
 
@@ -385,21 +595,61 @@ local function add_mapping(axis, track_guid, fx_guid, param_number)
     _on_add_mapping(m)
 end
 
-local function remove_selected_in(ms)
-    local filtered = {}
+-- Move an existing mapping to the other axis in place. The object keeps its
+-- identity (curve settings and edit state survive), nothing is removed unless
+-- the insert can happen, and there is exactly one save.
+local function reassign_axis(mapping, axis)
+    local from = axis == 'y' and xs or ys
+    local to   = axis == 'y' and ys or xs
 
-    for _, m in ipairs(ms) do
-        if not m.selected then
+    for _, m in ipairs(to) do
+        if m == mapping then return end
+        if m.track_guid == mapping.track_guid
+            and m.fx_guid == mapping.fx_guid
+            and m.param_number == mapping.param_number then
+            log('Mapping already exists on the target axis')
+            return
+        end
+    end
+
+    local filtered = {}
+    local found = false
+    for _, m in ipairs(from) do
+        if m == mapping then
+            found = true
+        else
             table.insert(filtered, m)
         end
     end
 
-    return filtered
+    if not found then return end
+
+    if axis == 'y' then
+        xs = filtered
+    else
+        ys = filtered
+    end
+
+    mapping.axis = axis
+    table.insert(to, mapping)
+    save_mappings()
 end
 
-local function remove_selected()
-    xs = remove_selected_in(xs)
-    ys = remove_selected_in(ys)
+local function remove_mapping(mapping)
+    local function without(ms)
+        local filtered = {}
+
+        for _, m in ipairs(ms) do
+            if mapping ~= m then
+                table.insert(filtered, m)
+            end
+        end
+
+        return filtered
+    end
+
+    xs = without(xs)
+    ys = without(ys)
     save_mappings()
 end
 
@@ -519,6 +769,9 @@ local function set_param_value(mapping, value)
 
     if not mapping.bypass and ensure_fx_number(mapping) and mapping.param_number ~= nil then
         reaper.TrackFX_SetParam(mapping.track, mapping.fx_number, mapping.param_number, adjusted_value)
+        -- Param writes bump the project state count; re-arm the watermark so
+        -- our own pad drags don't trigger the mappings-window auto-refresh.
+        update_project_update_state()
     end
 end
 
@@ -562,12 +815,14 @@ end
 
 return {
     reload_mappings = reload_mappings,
+    refresh_if_project_changed = refresh_if_project_changed,
     get_mappings = get_mappings,
     save_mappings = save_mappings,
     add_mapping = add_mapping,
     on_add_mapping = on_add_mapping,
     mapping_from_last_touched = mapping_from_last_touched,
-    remove_selected = remove_selected,
+    remove_mapping = remove_mapping,
+    reassign_axis = reassign_axis,
     is_empty = is_empty,
     set_param_value = set_param_value,
     with_mappings = function(f)

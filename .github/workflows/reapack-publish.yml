@@ -2,7 +2,11 @@ name: Publish to ReaPack (PR to reascripts)
 
 on:
   release:
-    types: [published]
+    # 'released' (not 'published') so a prerelease later promoted to a full
+    # release still publishes; it fires exactly once per go-live (a normal
+    # publish emits both events, so listening to both would double-run).
+    # Prereleases and drafts never fire this type.
+    types: [released]
   workflow_dispatch:
     inputs:
       tag:

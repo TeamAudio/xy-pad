@@ -2,10 +2,12 @@ name: Publish Release to website repo
 
 on:
   release:
-    # published: the one-shot sync when a (draft) release goes live.
+    # released: the one-shot sync when a release goes live ('released' rather
+    # than 'published' so a prerelease promoted to a full release also fires,
+    # without the double-run both types together would cause on normal publish).
     # edited: re-sync when notes are corrected after publishing; drafts are
     # filtered out by the job condition below.
-    types: [published, edited]
+    types: [released, edited]
   workflow_dispatch:
     inputs:
       project_id:
@@ -40,10 +42,6 @@ on:
         description: 'Set to false to skip the manual step (eg. wiring tests with placeholder tags).'
         required: false
         default: 'true'
-      website_ref:
-        description: 'techaudio-web ref providing the publish-release action (for testing unmerged action branches)'
-        required: false
-        default: 'main'
 
 jobs:
   publish-release-notes:
@@ -57,9 +55,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TeamAudio/techaudio-web
-          ref: ${{ github.event.inputs.website_ref || 'main' }}
+          # Pinned to main: a selectable ref would let any dispatcher run
+          # arbitrary action code with the service token.
+          ref: main
           fetch-depth: 0
           token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
+          # This checkout only resolves the action; it never pushes.
+          persist-credentials: false
           path: techaudio-web
 
       - name: Call publish-release action

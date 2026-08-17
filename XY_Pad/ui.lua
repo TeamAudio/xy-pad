@@ -786,8 +786,6 @@ local function render_mapping()
     local visible, open = ImGui.Begin(_ctx, 'Mappings', true, parameter_window_flags)
     if visible then
         Trap(function()
-            mappings.refresh_if_project_changed()
-
             if not open then
                 mappings_open = false
             end
@@ -1049,6 +1047,13 @@ local function render(options)
 
     if ImGui.IsKeyPressed(_ctx, ImGui.Key_Y) then
         training.train('y', mappings)
+    end
+
+    -- Observe external project changes BEFORE the pad renders: a drag's own
+    -- param writes re-arm the change watermark, so a check that runs after
+    -- them would silently absorb any external change from the same frame.
+    if mappings_open then
+        mappings.refresh_if_project_changed()
     end
 
     if training.is_training() then

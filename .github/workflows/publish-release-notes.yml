@@ -3,11 +3,12 @@ name: Publish Release to website repo
 on:
   release:
     # released: the one-shot sync when a release goes live ('released' rather
-    # than 'published' so a prerelease promoted to a full release also fires,
-    # without the double-run both types together would cause on normal publish).
-    # edited: re-sync when notes are corrected after publishing; drafts are
-    # filtered out by the job condition below.
-    types: [released, edited]
+    # than 'published' so a prerelease promoted to a full release also fires).
+    # Deliberately NOT 'edited': publishing a draft empirically emits both
+    # 'released' and 'edited', so listening to both races two identical
+    # website PRs (observed on v1.1.0). Post-publish notes corrections are
+    # covered by the workflow_dispatch path below.
+    types: [released]
   workflow_dispatch:
     inputs:
       project_id:

@@ -110,7 +110,24 @@ function render_content(frame)
                 ImGui.Spacing(ctx)
 
                 fonts.wrap(ctx, fonts.bold, function()
-                    ImGui.Text(ctx, "3. Explore additional options in the options menu.")
+                    ImGui.Text(ctx, "3. Shape each mapping's response with a curve.")
+                end, Trap)
+
+                ImGui.Spacing(ctx)
+
+                ImGui.PushTextWrapPos(ctx, wrap_width)
+                Trap(function()
+                    ImGui.Dummy(ctx, 10, 0)
+                    ImGui.SameLine(ctx)
+                    ImGui.Text(ctx,
+                        "Click 'Edit curve' on a mapping in the Mappings window, then right-click the pad to add points, drag them with the right button, and Alt + right-click to remove one. Each curve's color, thickness and visibility can be set per mapping.")
+                end)
+                ImGui.PopTextWrapPos(ctx)
+
+                ImGui.Spacing(ctx)
+
+                fonts.wrap(ctx, fonts.bold, function()
+                    ImGui.Text(ctx, "4. Explore additional options in the options menu.")
                 end, Trap)
 
                 ImGui.Spacing(ctx)

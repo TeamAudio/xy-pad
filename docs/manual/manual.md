@@ -13,7 +13,7 @@ XY Pad, by [Tech Audio](https://techaud.io/), is an interactive control script t
 - [How To Use](#how-to-use)
     - [Mapping Parameters](#mapping-parameters)
     - [Manipulate Parameters](#manipulate-parameters)
-    - [Customizing Parameter Manipulation Power](#customizing-parameter-manipulation-power)
+    - [Shaping Parameter Response with Curves](#shaping-parameter-response-with-curves)
 
 ### Prerequisites
 - [ReaPack](https://reapack.com/), a package manager for REAPER
@@ -49,6 +49,8 @@ XY Pad consists of a main control script, and 3 component scripts:
 ### XY Pad Window
 This is where you control parameters you've mapped to the pad by clicking and dragging your cursor within the grid boundaries. Parameters mapped to the X axis will have their values determined based on a factor ranging between 0 on the left edge and 1 on the right. Parameters mapped to the Y axis work similarly, with 0 at the bottom edge and 1 at the top.
 
+Each mapping's response curve is drawn on the pad in the mapping's color, so you can see at a glance how pad position translates into parameter values (see [Shaping Parameter Response with Curves](#shaping-parameter-response-with-curves)).
+
 ![XY Pad Main Window](images/window_main.png)
 
 <PageBreak />
@@ -68,16 +70,22 @@ This is where you control parameters you've mapped to the pad by clicking and dr
 <PageBreak />
 
 ### Mappings Window
-This window lets you monitor which parameters are mapped, edit the range of the XY Pad, invert the controls, or bypass controls entirely.
+This window lets you monitor which parameters are mapped, shape each mapping's response curve, invert the controls, or bypass controls entirely.
 
 ![XY Pad Mapping Window](images/window_mappings.png)
 - Available mapping options
-    - `Max/Min` Sliders
-        - Changes the range of values that XY Pad sends to plugin parameters
     - `Invert`
-        - Inverts values from XY Pad, with respect to the `Max/Min` sliders
+        - Inverts the value XY Pad sends, after the response curve is applied
     - `Bypass`
         - Bypasses the selected plugin parameter from being affected by XY Pad
+    - `Use curve`
+        - Toggles whether the mapping's response curve is applied; the curve's shape is kept while disabled
+    - `Edit curve`
+        - Puts the mapping's curve into edit mode on the pad (see [Shaping Parameter Response with Curves](#shaping-parameter-response-with-curves))
+    - `Curve visibility`
+        - Choose whether the curve's segments and/or points are drawn on the pad
+    - `Curve color`, `Curve thickness`, `Point radius`
+        - Appearance of the curve on the pad, per mapping
 
 <PageBreak />
 
@@ -101,6 +109,9 @@ Here, you can change aesthetic properties of XY Pad. Number of gridlines, colors
         - Change the size of the circular cursor
     - `Cursor Stroke`
         - Change the thickness of the circular cursor
+- Curve Options
+    - `Transpose Y curve` (per project)
+        - When enabled (the default), Y-axis mapping curves are transposed on the pad so their input runs bottom-to-top, matching the axis they control
 
 <PageBreak />
 
@@ -127,12 +138,25 @@ Both modes leverage REAPER's GetTouchedOrFocusedFX() ReaScript function to deter
 ### Manipulate Parameters
 - On the main `XY Pad` window, values (0, 0) is the bottom left corner, and (1, 1) is the top right corner
 - Clicking and dragging your mouse across the Pad will move the plugin parameters between the **minimum-most** value and **maximum-most** value *for that particular plugin* by default
-    - You can customize these values in the next section
+    - Each mapping's response curve shapes how pad position translates into parameter values — see the next section
 
 <PageBreak />
 
-### Customizing Parameter Manipulation Power
-- `Max` and `Min` sliders limit the values that XY Pad imparts on the plugin's parameter from a scale of `0.00` to `1.00`
-    - You can `CTRL + CLICK` (`CMD + CLICK` on MacOS) on the slider to input your own value
-- `Invert` checkbox swaps the baseline values of XY Pad, as described earlier, meaning (0, 0) is now the ***top-right*** corner, and (1, 1) is the ***bottom-left*** corner, while also respecting the `Max` and `Min` sliders
+### Shaping Parameter Response with Curves
+Every mapping has an editable response curve that maps pad position (input) to parameter value (output). By default it is a straight line: pad position passes through unchanged.
+
+Editing a curve:
+- Click `Edit curve` on a mapping in the Mappings window to edit its curve on the pad
+- `Right-click` anywhere on the pad to add a point
+- `Right-click and drag` a point to move it
+- `Alt + Right-click` a point to remove it
+- The first and last points are pinned to the pad edges; drag them to limit the range of values the mapping produces
+
+Related controls:
+- `Use curve` toggles the curve on and off without discarding its shape
+- `Curve visibility`, `Curve color`, `Curve thickness` and `Point radius` control how the curve is drawn on the pad
+- `Invert` checkbox flips the value XY Pad sends after the curve is applied, meaning (0, 0) is now the ***top-right*** corner, and (1, 1) is the ***bottom-left*** corner
 - `Bypass` checkbox switches on and off the manipulation of the plugin's parameter by the XY Pad
+- For Y-axis mappings the curve is drawn transposed by default so its input runs bottom-to-top; this can be disabled per project with `Transpose Y curve` in the Options window
+
+Upgrading from XY Pad 1.0: the `Max`/`Min` sliders have been replaced by curve endpoints. Projects saved with custom bounds are migrated automatically — the mapping sounds exactly the same, and the old range is now visible and editable as the curve itself.

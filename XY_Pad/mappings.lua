@@ -473,6 +473,9 @@ local function restore_editing_identity(editing)
             and m.fx_guid == editing.fx_guid
             and m.param_number == editing.param_number then
             m.is_editing = true
+            -- hydrate doesn't carry axis; without it, curve editing falls back
+            -- to X-axis coordinates and mis-transposes edits on a Y mapping.
+            m.axis = editing.axis
             return
         end
     end

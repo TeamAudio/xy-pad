@@ -15,16 +15,15 @@
 --@link https://techaud.io
 --@link https://github.com/TeamAudio
 --@link https://discord.gg/fCnkP9PhTQ
---@version 1.1.0
+--@version 1.2.0
 --@category FX
 --@author Tech Audio
 --@changelog
---  - Added editable response curves for every mapping: click 'Edit curve' on a mapping, then right-click the pad to add a point, drag points with the right button, and Alt + right-click to remove one (endpoints stay pinned to the pad edges; drag them vertically to set the output range)
---  - Added per-mapping curve controls in the Mappings window: use/bypass the curve, visibility (segments and/or points), color, line thickness and point radius
---  - Added a per-project option controlling whether Y-axis curves are transposed for editing
---  - Retired the Min/Max sliders: existing projects migrate their bounds into the curve automatically, so mappings sound exactly the same and the range is now visible and editable as the curve itself
---  - Fixed the pad responding to clicks aimed at overlapping windows (e.g. dragging a slider in the Mappings window no longer moves mapped parameters)
---  - Fixed mappings breaking permanently when their track was deleted mid-session; deleting a track and undoing now recovers the mapping automatically
+--  - Reorganized the Mappings window into a tree grouped by track, FX and parameter, with each mapping's controls laid out in resizable columns
+--  - Added axis reassignment: switch a mapping between the X and Y axes in place, keeping its curve and settings
+--  - Replaced selection-based removal with a per-mapping Remove button
+--  - Compacted the curve controls: color is now a single swatch that opens the full picker, and thickness and point radius are stepper inputs
+--  - The Mappings window now refreshes automatically when the project changes (tracks or FX added, removed or renamed) and no longer restores a stale saved window size
 --@provides
 --  [nomain] .
 --  [main] XY_Pad/TA_XY Pad.lua

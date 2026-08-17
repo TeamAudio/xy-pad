@@ -43,6 +43,11 @@ on:
         required: false
         default: 'true'
 
+# All pushes/PRs happen in other repos via the service token; this workflow
+# needs nothing from its own repo token.
+permissions:
+  contents: read
+
 jobs:
   publish-release-notes:
     # GitHub already filters draft releases out of created/edited triggers; the

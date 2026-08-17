@@ -1,4 +1,4 @@
-name: Publish GitHub Release Notes to website repo
+name: Publish Release to website repo
 
 on:
   release:
@@ -28,6 +28,22 @@ on:
         description: 'Release body content'
         required: true
         default: 'Release body content goes here'
+      source_ref:
+        description: 'Product repo ref to read the manual from (default: the tag). Set to main or release/x.y to publish a docs hotfix without cutting a release.'
+        required: false
+        default: ''
+      manual_only:
+        description: 'Publish only the manual (docs hotfix mode); skips release notes and blog post.'
+        required: false
+        default: 'false'
+      publish_manual:
+        description: 'Set to false to skip the manual step (eg. wiring tests with placeholder tags).'
+        required: false
+        default: 'true'
+      website_ref:
+        description: 'techaudio-web ref providing the publish-release action (for testing unmerged action branches)'
+        required: false
+        default: 'main'
 
 jobs:
   publish-release-notes:
@@ -41,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TeamAudio/techaudio-web
-          ref: main
+          ref: ${{ github.event.inputs.website_ref || 'main' }}
           fetch-depth: 0
           token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
           path: techaudio-web
@@ -54,5 +70,8 @@ jobs:
           project_repository: ${{ github.event.inputs.project_repository || github.repository }}
           version_tag: ${{ github.event.inputs.version_tag || github.event.release.tag_name }}
           release_body: ${{ github.event.inputs.release_body || github.event.release.body }}
+          source_ref: ${{ github.event.inputs.source_ref || '' }}
+          manual_only: ${{ github.event.inputs.manual_only || 'false' }}
+          publish_manual: ${{ github.event.inputs.publish_manual || 'true' }}
           service_token: ${{ secrets.PUBLISH_RELEASE_SERVICE_TOKEN }}
           latest_release_url: ${{ vars.LATEST_RELEASE_URL || '' }}
